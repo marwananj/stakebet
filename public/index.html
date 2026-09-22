@@ -418,6 +418,24 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
   .match{grid-template-columns:1fr;gap:10px}
   .odds{grid-template-columns:repeat(3,minmax(0,1fr))}
   .page-h{flex-direction:column;align-items:flex-start;gap:2px}
+  /* .row is used everywhere two fields sit side by side — config forms, the
+     admin add-fixture form (sport/league, home/away, the 3-way odds row),
+     deposit/withdraw amounts. At phone width two (or three) inputs sharing
+     one row got squeezed down to the point labels/placeholders clipped or
+     number spinners overlapped their own value. Stack them instead. */
+  .row{flex-direction:column;gap:12px}
+  .netpick{grid-template-columns:repeat(2,1fr)}
+  .score-line{gap:8px}
+  .score-line .tm{font-size:14px}
+  .score-box{font-size:22px}
+  .modal-box{padding:16px}
+  .card{padding:14px}
+  .stat .v{font-size:19px}
+  table{font-size:12.5px}
+  .tablewrap td,.tablewrap th{padding:8px 10px;white-space:nowrap}
+}
+@media (max-width:400px){
+  .netpick{grid-template-columns:repeat(1,1fr)}
 }
 </style>
 </head>
@@ -586,6 +604,16 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 const $=(s,r)=>(r||document).querySelector(s), $$=(s,r)=>[...(r||document).querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// Kickoff times are always shown in Beirut local time (Asia/Beirut), regardless
+// of the viewer's own browser/OS timezone — a match added by the admin for
+// "23/09 8:00 PM" should read as 8:00 PM to every visitor, not shift per
+// viewer. The browser's own Intl has the full IANA tz database, so this is
+// just an explicit `timeZone`, unlike the server side (engine.js), which has
+// to do the +3h arithmetic by hand since Node's ICU build can't be assumed.
+const BEIRUT_TZ = 'Asia/Beirut';
+function fmtBeirut(ts) {
+  return new Date(ts).toLocaleString('en-GB', { timeZone: BEIRUT_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' Beirut';
+}
 // Shared odds formatter — every place a price is displayed goes through this
 // instead of calling .toFixed(2) directly, so the decimal/american odds
 // format preference (S.user.oddsFormat, set from the profile page) applies
@@ -876,7 +904,7 @@ function matchRow(m, mainMkt) {
         <span>${esc(m.home)} ${m.live || m.ended ? `<b class="sc">${scoreLine[0]}</b>` : ''}</span>
         <span>${esc(m.away)} ${m.live || m.ended ? `<b class="sc">${scoreLine[1]}</b>` : ''}</span>
       </div>
-      <div class="m-meta">${m.live ? `<span class="clock">${clock}</span>` : new Date(m.start).toLocaleString()} · ${Object.keys(m.markets).length} markets ${m.verified ? ' · ✓ Verified' : ''}</div>
+      <div class="m-meta">${m.live ? `<span class="clock">${clock}</span>` : fmtBeirut(m.start)} · ${Object.keys(m.markets).length} markets ${m.verified ? ' · ✓ Verified' : ''}</div>
     </div>
     <div class="odds">${mkt.sel.map(s => oddsBtn(m, key, s)).join('')}${mkt.sel.length === 2 ? '<span></span>' : ''}</div>
   </div>`;
@@ -1114,7 +1142,7 @@ async function renderMatchDetail(M) {
         <div class="score-box">${m.live || m.ended ? scoreLine.join(' – ') : 'v'}</div>
         <div class="score-team r ${scoredSide === 1 ? 'scored' : ''}"><b class="tm">${esc(m.away)}</b></div>
       </div>
-      <div class="m-meta" style="margin-top:10px;justify-content:center">${m.live ? `<span class="clock">${clock}</span>` : (m.ended ? 'Finished' : new Date(m.start).toLocaleString())}${m.suspended ? ' · Suspended' : ''}</div>
+      <div class="m-meta" style="margin-top:10px;justify-content:center">${m.live ? `<span class="clock">${clock}</span>` : (m.ended ? 'Finished' : fmtBeirut(m.start))}${m.suspended ? ' · Suspended' : ''}</div>
       ${m.live || m.ended ? `<div class="fieldwrap">
         <div class="momentum-bar"><i class="h" style="width:${homePct}%"></i><i class="a" style="width:${100 - homePct}%"></i></div>
         <div class="field3d ${field3dClass(m.sport)}">
@@ -1129,7 +1157,7 @@ async function renderMatchDetail(M) {
     ${!m.live && !m.ended ? `<div class="card" style="margin-bottom:18px">
       <h3 style="margin-top:0">About this fixture</h3>
       <div class="kv"><span>Venue</span><b>${esc(venueFor(m.home))}</b></div>
-      <div class="kv"><span>Kickoff</span><b>${new Date(m.start).toLocaleString()}</b></div>
+      <div class="kv"><span>Kickoff</span><b>${fmtBeirut(m.start)}</b></div>
       <div class="kv"><span>Competition</span><b>${esc(m.league)}</b></div>
     </div>` : ''}
     <div class="card" style="margin-bottom:18px">
@@ -1580,6 +1608,13 @@ async function renderProfile(M) {
 }
 let engineConfigCache = null;
 async function renderAdmin(M) {
+  // Every admin action (set score, suspend, end, add fixture, toggle-admin…)
+  // re-renders this whole page. Blanking it to "Loading…" first collapses
+  // the scrollable area to near-zero height, so the browser resets scrollTop
+  // to 0 — which felt like "the page jumps to the top" every time you typed
+  // in a score. Save/restore the scroll position across the rebuild so
+  // setting a score keeps you exactly where you were in the matches table.
+  const savedScroll = M.scrollTop;
   M.innerHTML = `<div class="page-h"><h2>Admin dashboard</h2><p>Every user and every bet, straight from the database</p></div><div id="adminBody">Loading…</div>`;
   try {
     const [{ platform, users }, { bets }, { matches }] = await Promise.all([
@@ -1625,7 +1660,21 @@ async function renderAdmin(M) {
           <div class="field"><label>Home</label><input class="inp" id="fxHome" placeholder="Home team"></div>
           <div class="field"><label>Away</label><input class="inp" id="fxAway" placeholder="Away team"></div>
         </div>
-        <div class="field"><label>Starts in (minutes)</label><input class="inp" id="fxStart" type="number" min="0" value="10"></div>
+        <div class="seg" style="margin-bottom:12px;max-width:320px">
+          <button type="button" data-fxmode="quick" class="on">Starts in N minutes</button>
+          <button type="button" data-fxmode="date">Pick date &amp; time</button>
+        </div>
+        <div id="fxQuick" class="field"><label>Starts in (minutes)</label><input class="inp" id="fxStart" type="number" min="0" value="10"></div>
+        <div id="fxDate" class="row hide">
+          <div class="field"><label>Kickoff date <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickDate" type="date"></div>
+          <div class="field"><label>Kickoff time <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickTime" type="time" value="20:00"></div>
+        </div>
+        <div id="fxOddsWrap" class="row">
+          <div class="field"><label>Odds — home <span style="color:var(--dim)">(optional)</span></label><input class="inp" id="fxOddsHome" type="number" step="0.01" min="1.01" placeholder="e.g. 2.10"></div>
+          <div class="field"><label>Odds — draw</label><input class="inp" id="fxOddsDraw" type="number" step="0.01" min="1.01" placeholder="e.g. 3.40"></div>
+          <div class="field"><label>Odds — away</label><input class="inp" id="fxOddsAway" type="number" step="0.01" min="1.01" placeholder="e.g. 3.20"></div>
+        </div>
+        <p style="color:var(--dim);font-size:11.5px;margin:-4px 0 12px">Leave odds blank to let the engine price it automatically. Odds only apply to football's match-result market — every other market (O/U, BTTS, handicap…) is derived from it and updates live once kickoff passes.</p>
         <button class="btn ghost" id="fxAddBtn" style="width:auto">Add fixture</button>
       </div>
 
@@ -1637,7 +1686,7 @@ async function renderAdmin(M) {
         <td>${esc(m.home)} v ${esc(m.away)}</td>
         <td class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}</td>
         <td class="num">${m.live ? m.minute + "'" : (m.ended ? 'FT' : '—')}</td>
-        <td>${new Date(m.start).toLocaleString()}</td>
+        <td>${fmtBeirut(m.start)}</td>
         <td>${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
           <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
             <input class="inp" style="width:44px;padding:6px" type="number" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
@@ -1680,13 +1729,29 @@ async function renderAdmin(M) {
         toast('Config saved', 'Margin/suspend and stake limits updated.', 'ok');
       } catch (err) { toast('Save failed', err.message, 'bad'); }
     };
+    let fxMode = 'quick';
+    $$('[data-fxmode]').forEach(b => b.onclick = () => {
+      fxMode = b.dataset.fxmode;
+      $$('[data-fxmode]').forEach(x => x.classList.toggle('on', x === b));
+      $('#fxQuick').classList.toggle('hide', fxMode !== 'quick');
+      $('#fxDate').classList.toggle('hide', fxMode !== 'date');
+    });
     $('#fxAddBtn').onclick = async () => {
       try {
-        await api('POST', '/api/admin/fixtures', {
+        const payload = {
           sport: $('#fxSport').value, league: $('#fxLeague').value.trim(),
-          home: $('#fxHome').value.trim(), away: $('#fxAway').value.trim(), startInMinutes: +$('#fxStart').value || 0,
-        });
-        toast('Fixture added', 'It will appear on the board shortly.', 'ok');
+          home: $('#fxHome').value.trim(), away: $('#fxAway').value.trim(),
+        };
+        if (fxMode === 'date') {
+          if (!$('#fxKickDate').value || !$('#fxKickTime').value) return toast('Missing kickoff', 'Pick both a date and a time.', 'bad');
+          payload.kickoffDate = $('#fxKickDate').value; payload.kickoffTime = $('#fxKickTime').value;
+        } else {
+          payload.startInMinutes = +$('#fxStart').value || 0;
+        }
+        const oh = $('#fxOddsHome').value, od = $('#fxOddsDraw').value, oa = $('#fxOddsAway').value;
+        if (oh && od && oa) { payload.oddsHome = +oh; payload.oddsDraw = +od; payload.oddsAway = +oa; }
+        await api('POST', '/api/admin/fixtures', payload);
+        toast('Fixture added', fxMode === 'date' ? 'It will go live automatically at kickoff (Beirut time).' : 'It will appear on the board shortly.', 'ok');
         renderAdmin(M);
       } catch (err) { toast('Could not add fixture', err.message, 'bad'); }
     };
@@ -1714,6 +1779,7 @@ async function renderAdmin(M) {
       try { await api('POST', `/api/admin/users/${b.dataset.lockUser}/lock`, { hours: 24 }); toast('User locked', '24 hours', 'ok'); renderAdmin(M); }
       catch (err) { toast('Could not lock user', err.message, 'bad'); }
     });
+    M.scrollTop = savedScroll;
   } catch (err) { $('#adminBody').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
 

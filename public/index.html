@@ -943,6 +943,17 @@ function oddsBtn(m, mktKey, sel) {
   return `<button class="o ${on ? 'on' : ''} ${flash}" data-m="${m.id}" data-k="${mktKey}" data-s="${sel.k}">
     <span class="k">${esc(shortSel(sel, m))}</span><span class="v">${fmtOdds(sel.o)}</span></button>`;
 }
+// Real-broadcast-style clock text for a live football match, including
+// stoppage/injury time the admin has added (engine.js's m.addedHT/addedFT):
+// "45+2'" while first-half stoppage is being played, plain "67'" through
+// normal second-half minutes, "90+3'" once the match is in extra full-time
+// minutes. Non-football sports (and matches with no added time) just show
+// the plain minute, unchanged.
+function footballClock(m) {
+  if (m.htScore && m.minute > 90) return '90+' + (m.minute - 90) + "'";
+  if (!m.htScore && m.minute > 45) return '45+' + (m.minute - 45) + "'";
+  return m.minute + "'";
+}
 function shortSel(sel, m) {
   if (sel.k === '1') return m.sport === 'football' ? '1' : 'Home';
   if (sel.k === '2') return m.sport === 'football' ? '2' : 'Away';
@@ -954,7 +965,7 @@ function matchRow(m, mainMkt) {
   const key = Object.keys(m.markets).find(k => m.markets[k] === mkt);
   let clock = '';
   if (m.live) {
-    if (m.sport === 'football') clock = m.minute + "'";
+    if (m.sport === 'football') clock = footballClock(m);
     else if (m.sport === 'tennis') clock = 'Set ' + (m.sets[0] + m.sets[1] + 1) + ' · ' + m.games.join('–');
     else clock = m.minute + "'";
   }
@@ -975,9 +986,15 @@ function matchRow(m, mainMkt) {
   </div>`;
 }
 function board(sport, mode) {
-  const list = S.matches.filter(m => m.sport === sport && (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended)))
-    .sort((a, b) => a.start - b.start);
-  if (!list.length) return `<div class="empty">No ${mode === 'live' ? 'live' : 'upcoming'} ${sport} matches right now.</div>`;
+  // 'verified' is a real-world fixture — a curated real match, or one an
+  // admin added by hand (both carry m.verified=true) — as opposed to the
+  // procedurally-simulated filler that keeps every board topped up. It's a
+  // cross-cut of live/upcoming, so it doesn't use the live/ended split the
+  // other two modes do.
+  const list = S.matches.filter(m => m.sport === sport && (
+    mode === 'verified' ? m.verified : (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended))
+  )).sort((a, b) => a.start - b.start);
+  if (!list.length) return `<div class="empty">No ${mode === 'live' ? 'live' : (mode === 'verified' ? 'verified real' : 'upcoming')} ${sport} matches right now.</div>`;
   const byLeague = {}; list.forEach(m => (byLeague[m.league] = byLeague[m.league] || []).push(m));
   const mainMkt = sport === 'football' ? '1X2' : 'ML';
   return Object.entries(byLeague).map(([lg, ms]) => `
@@ -993,6 +1010,7 @@ function renderRoute() {
       <div class="tabs">
         <button class="${S.sportTab === 'live' ? 'on' : ''}" data-tab="live">Live</button>
         <button class="${S.sportTab === 'upcoming' ? 'on' : ''}" data-tab="upcoming">Upcoming</button>
+        <button class="${S.sportTab === 'verified' ? 'on' : ''}" data-tab="verified">✓ Verified real matches</button>
       </div>
       <div id="boardBody">${board(S.view, S.sportTab)}</div>`;
     $$('.tabs button').forEach(b => b.onclick = () => { S.sportTab = b.dataset.tab; renderRoute(); });
@@ -1187,7 +1205,7 @@ async function renderMatchDetail(M) {
   if (S.view !== 'match' || S.watchId !== m.id) return; // navigated away while fetching standings
   let clock = '';
   if (m.live) {
-    if (m.sport === 'football') clock = m.minute + "'";
+    if (m.sport === 'football') clock = footballClock(m);
     else if (m.sport === 'tennis') clock = 'Set ' + (m.sets[0] + m.sets[1] + 1) + ' · ' + m.games.join('–');
     else clock = m.minute + "'";
   }
@@ -1351,7 +1369,7 @@ function legTrackingHtml(l) {
   const m = findMatch(l.matchId);
   const hintTag = l.liveHint ? ` <span class="tag live-hint-${l.liveHint}">${l.liveHint === 'winning' ? 'Winning' : (l.liveHint === 'losing' ? 'Losing' : 'Push')}</span>` : '';
   if (m && m.live) {
-    const clock = m.sport === 'tennis' ? m.sets.join('–') : m.minute + "'";
+    const clock = m.sport === 'tennis' ? m.sets.join('–') : (m.sport === 'football' ? footballClock(m) : m.minute + "'");
     return ` <span class="tag open" style="cursor:pointer" data-watch="${m.id}">● ${m.score.join('–')} · ${clock}</span>${hintTag}`;
   }
   return hintTag;
@@ -1754,7 +1772,7 @@ async function renderAdmin(M) {
         <td data-label="Sport / League">${esc(m.sport)} · ${esc(m.league)}</td>
         <td data-label="Match">${esc(m.home)} v ${esc(m.away)}</td>
         <td data-label="Score" class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}</td>
-        <td data-label="Minute" class="num">${m.live ? m.minute + "'" : (m.ended ? 'FT' : '—')}</td>
+        <td data-label="Minute" class="num">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : '—')}</td>
         <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
         <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -1763,7 +1781,14 @@ async function renderAdmin(M) {
             <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
             <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend 5s</button>
             <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
-          </div>`}</td>
+          </div>
+          ${m.sport === 'football' && m.live ? `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
+            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
+            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>Set 1st-half added time</button>
+            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
+            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">Set 2nd-half added time</button>
+          </div>` : ''}`}</td>
       </tr>`).join('')}</tbody></table></div>
 
       <h3>Users</h3>
@@ -1843,6 +1868,15 @@ async function renderAdmin(M) {
       if (!confirm('End this match now and settle all open bets on it?')) return;
       try { await api('POST', `/api/admin/matches/${b.dataset.endMatch}/end`, {}); toast('Match ended', 'Open bets on it have been settled.', 'ok'); renderAdmin(M); }
       catch (err) { toast('Could not end match', err.message, 'bad'); }
+    });
+    $$('[data-added-time]').forEach(b => b.onclick = async () => {
+      const id = b.dataset.addedTime, half = b.dataset.atHalf;
+      const minutes = +$(`[data-at-${half.toLowerCase()}="${id}"]`).value || 0;
+      try {
+        await api('POST', `/api/admin/matches/${id}/added-time`, { half, minutes });
+        toast('Added time set', `${half === 'HT' ? '1st' : '2nd'} half +${minutes}'`, 'ok');
+        renderAdmin(M);
+      } catch (err) { toast('Could not set added time', err.message, 'bad'); }
     });
     $$('[data-toggle-admin]').forEach(b => b.onclick = async () => {
       try { await api('POST', `/api/admin/users/${b.dataset.toggleAdmin}/toggle-admin`, {}); renderAdmin(M); }

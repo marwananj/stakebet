@@ -245,7 +245,7 @@ function makeMatch(sport, league, home, away, live) {
   priceMatch(m);
   return m;
 }
-function capFor(m) { return m.sport === 'football' ? 90 : m.sport === 'tennis' ? 150 : (m.sport === 'nfl' ? 60 : 48); }
+function capFor(m) { return m.sport === 'football' ? (90 + (m.addedFT || 0)) : m.sport === 'tennis' ? 150 : (m.sport === 'nfl' ? 60 : 48); }
 function suspendMatch(m, ms) { m.suspendedUntil = now() + ms; m.suspClosed = false; }
 function isSuspended(m) { return m && m.suspendedUntil && now() < m.suspendedUntil; }
 
@@ -256,12 +256,24 @@ function pushEvent(m, partial) {
 }
 function stepMinute(m) {
   m.minute++;
-  if (m.sport === 'football' && m.minute === 45 && !m.htScore) {
+  if (m.sport === 'football' && !m.htScore && m.minute === 45 + (m.addedHT || 0)) {
     m.htScore = [...m.score];
     // Half-time marker event — purely additive to the event feed (never read
     // by settlement), used client-side to trigger the half-time banner in the
     // pitch celebration overlay the same way a goal triggers "GOAL!".
     pushEvent(m, { kind: 'half', txt: 'Half-time — ' + m.htScore.join('–') });
+    // First-half stoppage time (admin-set `addedHT`) is displayed as "45+N'"
+    // while it's being played (see the front-end clock formatting), but once
+    // half-time actually hits, the second half should resume counting from a
+    // clean 46' — exactly like a real broadcast clock — rather than
+    // continuing on from 45+N. Rebase the minute counter back down to 45 and
+    // push `liveStart` forward by the same amount of real time so the
+    // elapsed-time-driven catch-up loop in advanceMatch() keeps agreeing with
+    // this rebased minute instead of immediately fast-forwarding past it.
+    if (m.addedHT) {
+      m.minute = 45;
+      m.liveStart += (m.addedHT * SEC_PER_MATCH_MIN * 1000);
+    }
   }
   const cap = capFor(m);
   // Momentum: a slow random walk biased toward whichever side is currently
@@ -271,15 +283,19 @@ function stepMinute(m) {
   const strBias = (m.str[0] - m.str[1]) / (Math.abs(m.str[0]) + Math.abs(m.str[1]) + 0.01);
   const scoreBias = Math.sign((m.score[0] || 0) - (m.score[1] || 0));
   m.momentum = Math.max(6, Math.min(94, m.momentum + rnd(-6, 6) + strBias * 3 + scoreBias * 2));
-  // Once an admin has manually set this match's score (force-score), it's
-  // meant to be the real, authoritative result — not a value the random
-  // simulation then keeps adding surprise goals on top of a few seconds
-  // later. `adminLocked` (set in routes.js's force-score handler) freezes
-  // just the scoring while leaving the clock/momentum/suspense running
-  // normally, so the match doesn't look frozen — the score the admin typed
-  // in is what stays on the board and in the database until they either set
-  // it again or end the match.
-  if (m.adminLocked) {
+  // Verified/real matches (curated real-world fixtures, and every fixture the
+  // admin adds — see routes.js's fixture-create handler, which always sets
+  // `verified=true`) are meant to reflect the *real* result of that game, so
+  // the random goal-simulation engine must never touch their score — only
+  // the admin, from kickoff to full-time. `adminLocked` additionally covers
+  // the one-off case of a force-scored *unverified* match: once an admin has
+  // manually set a score there, it's likewise meant to stick rather than
+  // have the random simulation keep adding surprise goals on top of it a few
+  // seconds later. Either way, this freezes just the scoring while leaving
+  // the clock/momentum/suspense running normally, so the match doesn't look
+  // frozen — the score stays exactly what the admin set until they change it
+  // again or end the match.
+  if (m.verified || m.adminLocked) {
     // no random scoring this tick
   } else if (m.sport === 'football') {
     if (Math.random() < 0.035) {

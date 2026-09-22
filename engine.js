@@ -16,11 +16,13 @@ const SEC_PER_MATCH_MIN = 3; // 1 simulated minute = 3 real seconds, same pace a
 
 const TEAMS = {
   football: {
-    'Premier League': ['Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton'],
-    'La Liga': ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Athletic Club', 'Real Sociedad', 'Villarreal'],
-    'Serie A': ['Inter', 'Juventus', 'Napoli', 'Milan', 'Atalanta', 'Roma'],
+    'Premier League': ['Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'Man United', 'West Ham'],
+    'La Liga': ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Athletic Club', 'Real Sociedad', 'Villarreal', 'Real Betis', 'Sevilla'],
+    'Serie A': ['Inter', 'Juventus', 'Napoli', 'Milan', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina'],
+    'Bundesliga': ['Bayern Munich', 'Bayer Leverkusen', 'Borussia Dortmund', 'RB Leipzig', 'Eintracht Frankfurt', 'VfB Stuttgart'],
+    'Ligue 1': ['PSG', 'Monaco', 'Marseille', 'Lyon', 'Lille', 'Nice'],
   },
-  basketball: { 'NBA': ['Boston Celtics', 'Denver Nuggets', 'LA Lakers', 'Golden State', 'Milwaukee', 'Phoenix Suns', 'Miami Heat', 'Dallas Mavericks'] },
+  basketball: { 'NBA': ['Boston Celtics', 'Denver Nuggets', 'LA Lakers', 'Golden State', 'Milwaukee', 'Phoenix Suns', 'Miami Heat', 'Dallas Mavericks', 'New York Knicks', 'Minnesota'] },
   tennis: { 'ATP 1000': ['Alcaraz', 'Sinner', 'Djokovic', 'Medvedev', 'Zverev', 'Rublev', 'Rune', 'De Minaur'] },
   nfl: { 'NFL': ['Chiefs', 'Bills', '49ers', 'Eagles', 'Cowboys', 'Ravens', 'Dolphins', 'Lions'] },
 };
@@ -60,7 +62,19 @@ function footballProbs(m) {
       if (adj > 0.001) pAHhome += p; else if (adj < -0.001) pAHaway += p; else { pAHhome += p / 2; pAHaway += p / 2; }
     }
   }
-  return { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway };
+  // 1st-half-only model: purely pregame-shaped off m.str, independent of the
+  // live in-match score/minute — the first half doesn't care what happens in
+  // the second, and once htScore exists the HT market is closed anyway.
+  let pH1 = 0, pD1 = 0, pA1 = 0;
+  const lh1 = m.str[0] * 0.5 + 0.001, la1 = m.str[1] * 0.5 + 0.001;
+  for (let i = 0; i <= 8; i++) {
+    for (let j = 0; j <= 8; j++) {
+      const p = pois(i, lh1) * pois(j, la1);
+      if (i > j) pH1 += p; else if (i === j) pD1 += p; else pA1 += p;
+    }
+  }
+  const pHY = pH * pBtts, pHN = pH * (1 - pBtts), pDY = pD * pBtts, pDN = pD * (1 - pBtts), pAY = pA * pBtts, pAN = pA * (1 - pBtts);
+  return { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN };
 }
 
 function priceMatch(m) {
@@ -71,11 +85,13 @@ function priceMatch(m) {
     // already clears the quoted line, "Over" is a certainty, not a bet — a
     // real book moves the line up instead of quoting odds that can't lose.
     while (m.score[0] + m.score[1] >= m.line) m.line += 1;
-    const { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway } = footballProbs(m);
+    const { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN } = footballProbs(m);
     const [h, d, a] = priceFromProbs([pH, pD, pA]);
     const [o, u] = priceFromProbs([pOv, 1 - pOv]);
     const [y, n] = priceFromProbs([pBtts, 1 - pBtts]);
     const [dc1x, dc12, dcx2] = priceFromProbs([pH + pD, pH + pA, pD + pA]);
+    const [h1, d1, a1] = priceFromProbs([pH1, pD1, pA1]);
+    const [wHY, wHN, wDY, wDN, wAY, wAN] = priceFromProbs([pHY, pHN, pDY, pDN, pAY, pAN]);
     const [ahH, ahA] = priceFromProbs([pAHhome, pAHaway]);
     const ah = m.ahLine || 0;
     m.markets = {
@@ -83,6 +99,11 @@ function priceMatch(m) {
       'OU': { label: 'Total goals ' + m.line, line: m.line, closed: lockOdds(o, u), sel: [{ k: 'O', n: 'Over ' + m.line, o }, { k: 'U', n: 'Under ' + m.line, o: u }] },
       'BTTS': { label: 'Both teams to score', closed: lockOdds(y, n), sel: [{ k: 'Y', n: 'Yes', o: y }, { k: 'N', n: 'No', o: n }] },
       'DC': { label: 'Double chance', closed: lockOdds(dc1x, dc12, dcx2), sel: [{ k: '1X', n: m.home + ' or draw', o: dc1x }, { k: '12', n: m.home + ' or ' + m.away, o: dc12 }, { k: 'X2', n: 'Draw or ' + m.away, o: dcx2 }] },
+      'HT': { label: '1st half result' + (m.htScore ? ' (closed — 1st half finished ' + m.htScore.join('–') + ')' : ''), closed: !!m.htScore || lockOdds(h1, d1, a1), sel: [{ k: '1', n: m.home, o: h1 }, { k: 'X', n: 'Draw', o: d1 }, { k: '2', n: m.away, o: a1 }] },
+      'WBTTS': { label: 'Win & both teams to score', closed: lockOdds(wHY, wHN, wDY, wDN, wAY, wAN), sel: [
+        { k: 'HY', n: m.home + ' & BTTS Yes', o: wHY }, { k: 'HN', n: m.home + ' & BTTS No', o: wHN },
+        { k: 'DY', n: 'Draw & BTTS Yes', o: wDY }, { k: 'DN', n: 'Draw & BTTS No', o: wDN },
+        { k: 'AY', n: m.away + ' & BTTS Yes', o: wAY }, { k: 'AN', n: m.away + ' & BTTS No', o: wAN } ] },
       'AH': { label: 'Handicap (' + (ah > 0 ? '+' : '') + ah + ')', line: ah, closed: lockOdds(ahH, ahA), sel: [{ k: '1', n: m.home + ' ' + (ah > 0 ? '+' : '') + ah, o: ahH }, { k: '2', n: m.away + ' ' + (-ah > 0 ? '+' : '') + (-ah), o: ahA }] },
     };
   } else if (m.sport === 'tennis') {
@@ -151,7 +172,21 @@ function pushEvent(m, partial) {
 }
 function stepMinute(m) {
   m.minute++;
+  if (m.sport === 'football' && m.minute === 45 && !m.htScore) {
+    m.htScore = [...m.score];
+    // Half-time marker event — purely additive to the event feed (never read
+    // by settlement), used client-side to trigger the half-time banner in the
+    // pitch celebration overlay the same way a goal triggers "GOAL!".
+    pushEvent(m, { kind: 'half', txt: 'Half-time — ' + m.htScore.join('–') });
+  }
   const cap = capFor(m);
+  // Momentum: a slow random walk biased toward whichever side is currently
+  // stronger/ahead, so the momentum bar on the watch page actually moves
+  // instead of sitting frozen at 50/50 for the whole match.
+  if (m.momentum == null) m.momentum = 50;
+  const strBias = (m.str[0] - m.str[1]) / (Math.abs(m.str[0]) + Math.abs(m.str[1]) + 0.01);
+  const scoreBias = Math.sign((m.score[0] || 0) - (m.score[1] || 0));
+  m.momentum = Math.max(6, Math.min(94, m.momentum + rnd(-6, 6) + strBias * 3 + scoreBias * 2));
   if (m.sport === 'football') {
     if (Math.random() < 0.035) {
       const side = Math.random() < m.str[0] / (m.str[0] + m.str[1]) ? 0 : 1;
@@ -174,7 +209,13 @@ function stepMinute(m) {
       pushEvent(m, { side, kind: 'score', txt: (side ? m.away : m.home) + ' +' + pts + ' — ' + m.score.join('–') });
     }
   }
-  if (m.minute >= cap) { m.ended = true; m.live = false; return true; }
+  if (m.minute >= cap) {
+    // Full-time marker — same purpose as the half-time one above: the client
+    // celebration overlay looks for kind 'half'/'full' on the most recent
+    // event to show the HT/FT banner instead of a goal burst.
+    pushEvent(m, { kind: 'full', txt: 'Full-time — ' + m.score.join('–') });
+    m.ended = true; m.live = false; return true;
+  }
   return false;
 }
 function advanceMatch(m) {
@@ -210,6 +251,39 @@ function listMatches({ sport, live, ended } = {}) {
   return db.prepare(sql).all(...args).map(rowToMatch);
 }
 
+// ---------- user-started FIFA-style simulations ----------
+// Everything on this board is already a simulation under the hood — there's
+// no real live-data feed — but this is the one kind of match a user starts
+// themselves, on demand, right now, rather than waiting for the schedule.
+// It runs through the exact same makeMatch/priceMatch/advanceMatch/settleMatch
+// pipeline as every other match (the shared tick() loop below already
+// advances/reprices/settles it with no special-casing needed) — the only
+// difference is `m.sim`/`m.simOwner`, which the API layer uses to keep these
+// out of the regular sport boards and list them in their own section instead.
+const MAX_SIMS_PER_USER = 3;
+function countUserSims(userId) {
+  return listMatches({ ended: false }).filter((m) => m.sim && m.simOwner === userId).length;
+}
+function startSim(userId, sport) {
+  if (!TEAMS[sport]) return { error: 'Unknown sport.' };
+  if (countUserSims(userId) >= MAX_SIMS_PER_USER) return { error: `You can only run ${MAX_SIMS_PER_USER} simulations at once — wait for one to finish.` };
+  const teams = Object.values(TEAMS[sport])[0];
+  const pool = [...teams];
+  const home = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+  const away = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+  const m = makeMatch(sport, 'FIFA Simulation', home, away, true);
+  m.sim = true;
+  m.simOwner = userId;
+  m.minute = 0; m.liveStart = now(); m.start = now(); m.score = [0, 0];
+  if (sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
+  priceMatch(m);
+  saveMatch(m);
+  return { match: m };
+}
+function listSims() {
+  return listMatches({ ended: false }).filter((m) => m.sim);
+}
+
 function pairAllTeams(teams) {
   const pool = [...teams];
   const pairs = [];
@@ -231,9 +305,44 @@ function genFixtures(sportId, league, teams) {
     saveMatch(m);
   });
 }
+// ---------- verified real-world fixtures (example data) ----------
+// A small, clearly-labeled set of EXAMPLE fixtures for a couple of
+// recognizable real competitions, mirroring the original prototype's
+// REAL_FIXTURES pattern. There's no live real-world results feed behind
+// this — these are just real team names/competitions with a kickoff time
+// computed relative to `now()` (next occurrence of a given weekday/hour) so
+// they never look stale, unlike a hardcoded past date would. They're seeded
+// once alongside the normal procedural fixtures and marked m.verified = true,
+// same flag the admin-added-fixture flow already uses for its "✓ Verified" badge.
+function nextWeekday(targetDow, hour, minute) {
+  const d = new Date();
+  d.setHours(hour, minute || 0, 0, 0);
+  let add = (targetDow - d.getDay() + 7) % 7;
+  if (add === 0 && d.getTime() <= now()) add = 7;
+  d.setDate(d.getDate() + add);
+  return d.getTime();
+}
+function buildRealFixtures() {
+  return [
+    { league: 'Premier League', home: 'Arsenal', away: 'Liverpool', start: nextWeekday(6, 15, 0) },
+    { league: 'Premier League', home: 'Man City', away: 'Chelsea', start: nextWeekday(6, 17, 30) },
+    { league: 'UEFA Champions League', home: 'Real Madrid', away: 'Bayern Munich', start: nextWeekday(2, 21, 0) },
+    { league: 'UEFA Champions League', home: 'Paris Saint-Germain', away: 'Inter', start: nextWeekday(2, 21, 0) },
+    { league: 'UEFA Champions League', home: 'Barcelona', away: 'Manchester City', start: nextWeekday(3, 21, 0) },
+  ];
+}
+function seedRealFixtures() {
+  for (const fx of buildRealFixtures()) {
+    const m = makeMatch('football', fx.league, fx.home, fx.away, false);
+    m.start = fx.start;
+    m.verified = true;
+    saveMatch(m);
+  }
+}
 function seedIfEmpty() {
   const { c } = db.prepare('SELECT COUNT(*) AS c FROM matches').get();
   if (c > 0) return;
+  seedRealFixtures();
   for (const s of SPORTS) {
     for (const [lg, teams] of Object.entries(TEAMS[s.id])) {
       genFixtures(s.id, lg, teams);
@@ -302,6 +411,16 @@ function tick(onSettle) {
   const live = listMatches({ live: true, ended: false });
   for (const m of live) {
     const ended = advanceMatch(m);
+    // advanceMatch()/stepMinute() only ever touch the clock/score — they never
+    // reprice the match themselves (priceMatch() is otherwise only called once
+    // at kickoff and once more here). Without this, every live match's odds
+    // were computed exactly once at kickoff and then frozen for the entire
+    // game, never reacting to the clock running down OR to goals actually
+    // being scored — the single biggest thing that should move a live price.
+    // Reprice every still-live match on every tick so odds track time/score
+    // the way a real in-play book does; a match that just ended keeps its
+    // final pre-settlement price frozen, which is correct.
+    if (!ended) priceMatch(m);
     saveMatch(m);
     if (ended && onSettle) onSettle(m);
   }
@@ -330,4 +449,5 @@ function startEngine(onSettle) {
 module.exports = {
   TEAMS, SPORTS, priceMatch, makeMatch, isSuspended, capFor,
   saveMatch, getMatch, listMatches, startEngine, CONFIG,
+  startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
 };

@@ -647,6 +647,12 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
       score: m.score, minute: m.minute, live: m.live, ended: m.ended,
       verified: !!m.verified, start: m.start,
       status: m.ended ? 'finished' : (m.live ? 'live' : 'upcoming'),
+      // Needed by the admin page's clock formatting (45+N'/90+N' once
+      // stoppage time is added) and its added-time inputs — without these,
+      // the admin table couldn't tell half-time had passed (so it kept
+      // showing "45+N'" forever instead of switching to a plain minute) and
+      // could never show or gate the currently-set added time.
+      htScore: m.htScore || null, addedHT: m.addedHT || 0, addedFT: m.addedFT || 0,
     };
   });
   json(res, 200, { matches });
@@ -655,6 +661,16 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
 route('GET', '/api/admin/bets', (req, res) => {
   const rows = db.prepare(`SELECT b.*, u.email AS user_email, u.name AS user_name FROM bets b JOIN users u ON u.id = b.user_id ORDER BY b.placed_at DESC LIMIT 500`).all();
   json(res, 200, { bets: rows.map((r) => ({ id: r.id, userEmail: r.user_email, userName: r.user_name, type: r.type, stake: r.stake, odds: r.odds, payout: r.payout, status: r.status, returned: r.returned, placed: r.placed_at, legs: JSON.parse(r.legs) })) });
+}, { auth: true, admin: true });
+
+// The admin page's engine/stake-limit form used to always show its
+// hardcoded HTML defaults (min 0.10, max odds 350, etc.) on every load,
+// never the actual current values — there was no way to read them back,
+// only to blindly overwrite them via POST. So re-opening the admin page
+// after changing a limit made it look like the change hadn't taken, even
+// though it had. This lets the page load with what's actually configured.
+route('GET', '/api/admin/config', (req, res) => {
+  json(res, 200, { config: engine.CONFIG, stakeLimits: STAKE_LIMITS });
 }, { auth: true, admin: true });
 
 route('POST', '/api/admin/config', (req, res, p, body) => {

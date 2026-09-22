@@ -765,7 +765,21 @@ route('POST', '/api/admin/fixtures', (req, res, p, body) => {
     const oh = +oddsHome, od = +oddsDraw, oa = +oddsAway;
     if (oh > 1 && od > 1 && oa > 1) {
       const str = engine.strengthsForOdds(oh, od, oa);
-      if (str) { m.str = str; engine.priceMatch(m); }
+      if (str) {
+        m.str = str;
+        engine.priceMatch(m);
+        // Pin the pregame 1X2 line to exactly what was typed — the solver
+        // above gets every other market internally consistent with it, but
+        // at very lopsided prices its grid resolution can land a little off
+        // the exact number. Live play reprices everything normally once the
+        // match kicks off.
+        if (m.markets['1X2']) {
+          const sel = m.markets['1X2'].sel;
+          sel.find((s) => s.k === '1').o = oh;
+          sel.find((s) => s.k === 'X').o = od;
+          sel.find((s) => s.k === '2').o = oa;
+        }
+      }
     }
   }
   m.verified = true; // admin-added fixtures show the verified badge

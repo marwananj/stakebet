@@ -61,7 +61,12 @@ a{color:var(--accent)}
 .btn.ghost{background:var(--raised);color:var(--text);border:1px solid var(--line2);box-shadow:none}
 .btn.ghost:hover{background:var(--raised2);box-shadow:none;transform:none}
 .btn.sm{padding:8px 13px;font-size:13px;width:auto}
-.inp{width:100%;padding:12px 13px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);transition:border-color .15s,box-shadow .15s}
+/* font-size:16px (not the body's 15px) is deliberate: iOS Safari auto-zooms
+   the whole page in when you focus any input smaller than 16px, which on the
+   stake/amount fields made typing an amount feel broken — the page would
+   suddenly zoom and shift right as your keyboard came up, right as you
+   started entering a number. */
+.inp{width:100%;padding:12px 13px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);transition:border-color .15s,box-shadow .15s;font-size:16px;font-family:inherit;color:var(--text)}
 .inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .field{margin-bottom:13px}
 .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px;font-weight:500}
@@ -1325,11 +1330,11 @@ function renderSlip() {
         <div style="text-align:right"><div class="leg-odd">${fmtOdds(l.odds)}</div><button class="leg-x" data-rm="${l.id}">✕</button></div>
       </div>
       ${l.gone ? `<div class="leg-err">No longer available — remove to continue</div>` : ''}
-      ${S.slipMode === 'single' && !l.gone ? `<div class="stake-row"><input class="inp" type="number" min="0.10" step="0.10" value="${l.stake}" data-stake="${l.id}"></div>` : ''}
+      ${S.slipMode === 'single' && !l.gone ? `<div class="stake-row"><input class="inp" type="number" inputmode="decimal" min="0.10" step="0.10" value="${l.stake}" data-stake="${l.id}"></div>` : ''}
     </div>`).join('');
   if (S.slipMode === 'parlay') {
     const od = parlayOdds();
-    F.innerHTML = `<div class="field"><label>Stake (USD)</label><input class="inp" id="parlayStake" type="number" min="0.10" step="0.10" value="10"></div>
+    F.innerHTML = `<div class="field"><label>Stake (USD)</label><input class="inp" id="parlayStake" type="number" inputmode="decimal" min="0.10" step="0.10" value="10"></div>
       <div class="sum"><span>${n} legs combined</span><b>${fmtOdds(od)}</b></div>
       <div class="sum big"><span>Potential return</span><b id="pRet">${fmt(10 * od)}</b></div>
       <button class="btn" id="placeBtn" ${blocked ? 'disabled' : ''}>${blocked ? 'Remove unavailable legs' : 'Place parlay'}</button>`;
@@ -1337,19 +1342,49 @@ function renderSlip() {
   } else {
     const st = S.slip.reduce((a, l) => a + (+l.stake || 0), 0);
     const ret = S.slip.reduce((a, l) => a + (+l.stake || 0) * l.odds, 0);
-    F.innerHTML = `<div class="sum"><span>${n} single bet${n > 1 ? 's' : ''}</span><b>${fmt(st)}</b></div>
-      <div class="sum big"><span>Potential return</span><b>${fmt(ret)}</b></div>
+    F.innerHTML = `<div class="sum"><span>${n} single bet${n > 1 ? 's' : ''}</span><b id="slipStakeSum">${fmt(st)}</b></div>
+      <div class="sum big"><span>Potential return</span><b id="slipRetSum">${fmt(ret)}</b></div>
       <button class="btn" id="placeBtn" ${blocked ? 'disabled' : ''}>${blocked ? 'Remove unavailable legs' : 'Place ' + (n > 1 ? n + ' bets' : 'bet')}</button>`;
   }
   $('#placeBtn').onclick = placeBets;
-  B.oninput = e => { const i = e.target.closest('[data-stake]'); if (!i) return; const l = S.slip.find(x => x.id === i.dataset.stake); if (l) { l.stake = i.value; renderSlip(); } };
+  // Typing a stake used to call the full renderSlip() on every keystroke,
+  // which rebuilds the whole slip's innerHTML — including the very <input>
+  // being typed in. That destroys and recreates the input node each time,
+  // so it loses focus/cursor position mid-type: it looked and felt like the
+  // amount field was laggy or dropping keystrokes. Now typing only updates
+  // the in-memory stake and the two summary numbers directly (same
+  // lightweight approach the parlay stake input already used below) —
+  // nothing about the input itself is touched, so it types normally. A full
+  // renderSlip() still happens on structural changes (add/remove a leg,
+  // switch single/parlay mode, odds changing underneath a leg).
+  B.oninput = e => {
+    const i = e.target.closest('[data-stake]'); if (!i) return;
+    const l = S.slip.find(x => x.id === i.dataset.stake); if (!l) return;
+    l.stake = i.value;
+    saveSlip();
+    if (S.slipMode === 'single') {
+      const st2 = S.slip.reduce((a, x) => a + (+x.stake || 0), 0);
+      const ret2 = S.slip.reduce((a, x) => a + (+x.stake || 0) * x.odds, 0);
+      const stakeEl = $('#slipStakeSum'), retEl = $('#slipRetSum');
+      if (stakeEl) stakeEl.textContent = fmt(st2);
+      if (retEl) retEl.textContent = fmt(ret2);
+    }
+  };
 }
 document.body.addEventListener('click', e => {
   const b = e.target.closest('.slip-mode button'); if (!b) return;
   S.slipMode = b.dataset.m; $$('.slip-mode button').forEach(x => x.classList.toggle('on', x === b)); renderSlip();
 });
+// Guards against a double-tap/double-click on "Place bet" firing two
+// requests before the first one's response clears the slip — easy to hit on
+// a slow connection or on mobile where a tap can register twice. The button
+// itself is also disabled while a placement is in flight as a visible cue.
+let placingBets = false;
 async function placeBets() {
-  if (!S.slip.length) return;
+  if (!S.slip.length || placingBets) return;
+  placingBets = true;
+  const btn = $('#placeBtn');
+  if (btn) { btn.disabled = true; btn.dataset.origLabel = btn.textContent; btn.textContent = 'Placing…'; }
   try {
     if (S.slipMode === 'parlay') {
       const stake = +$('#parlayStake').value || 0;
@@ -1367,7 +1402,12 @@ async function placeBets() {
     soundBetPlaced();
     if (window.innerWidth <= 1100) $('#slipcol').classList.remove('open');
     refreshAll();
-  } catch (err) { toast('Could not place bet', err.message, 'bad'); }
+  } catch (err) {
+    toast('Could not place bet', err.message, 'bad');
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origLabel || 'Place bet'; }
+  } finally {
+    placingBets = false;
+  }
 }
 
 /* ============ BETS / WALLET / TX / ACTIVITY / ADMIN ============ */
@@ -1538,7 +1578,7 @@ function renderWallet(M) {
         <div class="kv"><span>Credited after</span><b>${N.conf} (simulated)</b></div>
         ${u.limits && u.limits.deposit > 0 ? `<div class="kv"><span>Your 24h deposit limit</span><b class="num">${fmt(u.limits.deposit)}</b></div>` : ''}
         <div class="note" style="margin:12px 0">No real blockchain is behind this — it's a play-money demo. Enter an amount below; it lands as <b>pending</b> and confirms itself about a minute later (see Transactions).</div>
-        <div class="field"><label>Amount (USD)</label><input class="inp" id="depAmt" type="number" min="${N.min}" value="${N.min * 5}"></div>
+        <div class="field"><label>Amount (USD)</label><input class="inp" id="depAmt" type="number" inputmode="decimal" min="${N.min}" value="${N.min * 5}"></div>
         <div class="field"><label>Security key <span style="color:var(--dim)">(private — set by the account holder)</span></label><input class="inp" id="depKey" placeholder="••••••" maxlength="12"></div>
         <button class="btn" id="depBtn">Deposit</button>
       </div>
@@ -1589,7 +1629,7 @@ function openWithdraw(M) {
     <div class="field"><label>Network</label>
       <select class="inp" id="wdNet">${Object.entries(NETS).map(([k, n]) => `<option value="${k}" ${k === net0 ? 'selected' : ''}>${n.name} · ${n.chain} · fee $${(n.fee * u.vipFeeMultiplier).toFixed(2)}</option>`).join('')}</select></div>
     <div class="field"><label>Destination address</label><input class="inp" id="wdAddr" placeholder="${NETS[net0].pre}…" spellcheck="false"></div>
-    <div class="field"><label>Amount (USD)</label><input class="inp" id="wdAmt" type="number" min="${NETS[net0].min}" value="${NETS[net0].min}">
+    <div class="field"><label>Amount (USD)</label><input class="inp" id="wdAmt" type="number" inputmode="decimal" min="${NETS[net0].min}" value="${NETS[net0].min}">
       <div class="chips" id="wdChips">${[25, 50, 75, 100].map(p => `<button data-p="${p}" type="button">${p}%</button>`).join('')}</div></div>
     <div class="field"><label>Security key <span style="color:var(--dim)">(private — set by the account holder)</span></label><input class="inp" id="wdKey" placeholder="••••••" maxlength="12"></div>
     <div class="kv"><span>Available</span><b class="num">${fmt(u.balance)}</b></div>
@@ -1794,17 +1834,17 @@ async function renderAdmin(M) {
         <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
         <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
-            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
+            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
+            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
             <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
             <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend 5s</button>
             <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
           </div>
           ${m.sport === 'football' && m.live ? `
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
-            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
+            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
             <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>Set 1st-half added time</button>
-            <input class="inp" style="width:52px;padding:8px 6px" type="number" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
+            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
             <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">Set 2nd-half added time</button>
           </div>` : ''}`}</td>
       </tr>`).join('')}</tbody></table></div>

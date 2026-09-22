@@ -246,11 +246,29 @@ route('POST', '/api/auth/verify', (req, res, p, body) => {
     if (pending.attempts >= 5) { verificationStore.delete(em); return json(res, 400, { error: 'Too many wrong attempts. Request a new code.' }); }
     return json(res, 400, { error: `That code is incorrect (${5 - pending.attempts} attempts left).` });
   }
+  // Defensive re-check right before inserting: the `users.email` column is
+  // UNIQUE at the DB level (db.js), but that only turns a duplicate into an
+  // uncaught constraint-violation exception — which server.js's generic
+  // handler turns into a confusing raw "Server error" (500) instead of the
+  // same friendly "already exists" message signup gives. This closes that
+  // gap for the case that actually reaches it: two /verify requests in
+  // flight for the same email at once (e.g. a double-tapped submit button
+  // on a slow connection) — one succeeds, the other gets a clean 409 instead
+  // of a 500.
+  if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) {
+    verificationStore.delete(em);
+    return json(res, 409, { error: 'An account with this email already exists. Log in instead.' });
+  }
   verificationStore.delete(em);
   const id = uid('u');
   const isAdmin = isAdminEmail(em) ? 1 : 0;
-  db.prepare(`INSERT INTO users (id, email, name, password_hash, country, joined_at, verified, is_admin, balance)
-    VALUES (?,?,?,?,?,?,1,?,0)`).run(id, em, pending.payload.name, pending.payload.passwordHash, pending.payload.country, now(), isAdmin);
+  try {
+    db.prepare(`INSERT INTO users (id, email, name, password_hash, country, joined_at, verified, is_admin, balance)
+      VALUES (?,?,?,?,?,?,1,?,0)`).run(id, em, pending.payload.name, pending.payload.passwordHash, pending.payload.country, now(), isAdmin);
+  } catch (err) {
+    if (String(err.message || '').includes('UNIQUE')) return json(res, 409, { error: 'An account with this email already exists. Log in instead.' });
+    throw err;
+  }
   // No welcome bonus is auto-credited — it sits unclaimed until
   // the user redeems BONUS_CLAIM_CODE via POST /api/me/claim-bonus (which is
   // also where wagering_required actually gets set, at claim time).
@@ -315,7 +333,13 @@ route('GET', '/api/matches', (req, res, p, body, query) => {
   // User-started FIFA simulations are excluded from the regular sport board —
   // they live in their own section (see /api/sims) so they don't clutter the
   // real schedule, even though they run through the exact same engine.
-  const list = engine.listMatches({ sport: query.sport || undefined, ended: false }).filter((m) => !m.sim);
+  // A just-finished match also stays on the board briefly (see
+  // listRecentlyEnded()) instead of vanishing the instant it ends, so there's
+  // a moment to actually see "Full time" before another live match — which
+  // maybeKickoff() in engine.js is already backfilling every tick — takes
+  // its place, rather than the board jump-cutting between matches.
+  const sport = query.sport || undefined;
+  const list = [...engine.listMatches({ sport, ended: false }), ...engine.listRecentlyEnded(sport)].filter((m) => !m.sim);
   json(res, 200, { matches: list });
 }, { auth: true });
 
@@ -395,7 +419,7 @@ route('POST', '/api/sims/:id/abandon', (req, res, p) => {
   if (!m || !m.sim) return json(res, 404, { error: 'Simulation not found.' });
   if (m.simOwner !== req.user.id && !req.user.is_admin) return json(res, 403, { error: 'You can only abandon your own simulation.' });
   if (m.ended) return json(res, 400, { error: 'This simulation has already ended.' });
-  m.ended = true; m.live = false;
+  m.ended = true; m.live = false; m.endedAt = now();
   engine.saveMatch(m);
   settleMatch(m);
   json(res, 200, { match: m });
@@ -647,6 +671,12 @@ route('POST', '/api/admin/config', (req, res, p, body) => {
 }, { auth: true, admin: true });
 
 // ---------- admin CRUD: matches ----------
+// Once an admin sets a score by hand, it's the real result — the live
+// simulation (engine.js's stepMinute()) must not then quietly add more
+// random goals on top of it a few ticks later, which used to make a manually
+// set score look "wrong" again within seconds. `adminLocked` freezes the
+// random scoring for this match (the clock/momentum keep moving normally)
+// until it's ended or force-scored again.
 route('POST', '/api/admin/matches/:id/force-score', (req, res, p, body) => {
   const m = engine.getMatch(p.id);
   if (!m) return json(res, 404, { error: 'Match not found.' });
@@ -654,6 +684,7 @@ route('POST', '/api/admin/matches/:id/force-score', (req, res, p, body) => {
   if (!Number.isFinite(home) || !Number.isFinite(away) || home < 0 || away < 0) return json(res, 400, { error: 'home/away must be non-negative numbers.' });
   m.score = [home, away];
   if (m.sport === 'tennis') m.sets = [home, away];
+  m.adminLocked = true;
   engine.priceMatch(m);
   engine.saveMatch(m);
   json(res, 200, { match: m });
@@ -663,7 +694,7 @@ route('POST', '/api/admin/matches/:id/end', (req, res, p) => {
   const m = engine.getMatch(p.id);
   if (!m) return json(res, 404, { error: 'Match not found.' });
   if (m.ended) return json(res, 400, { error: 'Match already ended.' });
-  m.ended = true; m.live = false;
+  m.ended = true; m.live = false; m.endedAt = now();
   engine.saveMatch(m);
   settleMatch(m);
   json(res, 200, { match: m });
@@ -678,11 +709,37 @@ route('POST', '/api/admin/matches/:id/suspend', (req, res, p, body) => {
   json(res, 200, { match: m });
 }, { auth: true, admin: true });
 
+// Kickoff can be given either as "starts in N minutes" (quick/relative) or as
+// an explicit Beirut-local date + time (kickoffDate 'YYYY-MM-DD' + kickoffTime
+// 'HH:MM', both interpreted as Asia/Beirut, fixed UTC+3 — see engine.js's
+// beirutWallToUtc()). Whichever is given, the fixture goes live automatically
+// the moment its `start` timestamp is reached — engine.js's maybeKickoff()
+// already polls for that on every 3s tick, no special-casing needed here.
+// Optional oddsHome/oddsDraw/oddsAway (football only) let the admin set the
+// 1X2 price directly; they're de-vigged into fair probabilities and solved
+// back into the match's underlying [home,away] attack strengths (see
+// strengthsForOdds() in engine.js) so every other market (O/U, BTTS,
+// handicap, half-time) stays internally consistent with them and still
+// updates live once the match kicks off, rather than freezing a raw number.
 route('POST', '/api/admin/fixtures', (req, res, p, body) => {
-  const { sport, league, home, away, startInMinutes } = body || {};
+  const { sport, league, home, away, startInMinutes, kickoffDate, kickoffTime, oddsHome, oddsDraw, oddsAway } = body || {};
   if (!sport || !league || !home || !away) return json(res, 400, { error: 'sport, league, home and away are required.' });
   const m = engine.makeMatch(sport, league, String(home), String(away), false);
-  m.start = now() + (Math.max(0, +startInMinutes || 0)) * 60000;
+  if (kickoffDate && kickoffTime) {
+    const [y, mo, d] = String(kickoffDate).split('-').map(Number);
+    const [h, mi] = String(kickoffTime).split(':').map(Number);
+    if (!y || !mo || !d || Number.isNaN(h) || Number.isNaN(mi)) return json(res, 400, { error: 'Invalid kickoff date/time.' });
+    m.start = engine.beirutWallToUtc(y, mo, d, h, mi);
+  } else {
+    m.start = now() + (Math.max(0, +startInMinutes || 0)) * 60000;
+  }
+  if (sport === 'football' && oddsHome && oddsDraw && oddsAway) {
+    const oh = +oddsHome, od = +oddsDraw, oa = +oddsAway;
+    if (oh > 1 && od > 1 && oa > 1) {
+      const str = engine.strengthsForOdds(oh, od, oa);
+      if (str) { m.str = str; engine.priceMatch(m); }
+    }
+  }
   m.verified = true; // admin-added fixtures show the verified badge
   engine.saveMatch(m);
   json(res, 200, { match: m });

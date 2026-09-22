@@ -485,8 +485,35 @@ function seedRealFixtures() {
   for (const fx of buildRealFixtures()) {
     const m = makeMatch('football', fx.league, fx.home, fx.away, false);
     m.start = fx.start;
-    m.verified = true;
+    // NOT verified: these are recurring "next Saturday/Tuesday" placeholder
+    // fixtures (see nextWeekday() above) that recompute to a different date
+    // every time the server restarts — they were never tied to an actual
+    // confirmed real-world kickoff, just headline team names spread across
+    // every league so each one had *something* in its rotation. Marking them
+    // verified made them show up in the "✓ Verified real matches" tab
+    // alongside genuinely researched, dated fixtures (see
+    // buildSpecialFixtures()), which is misleading — they play out like any
+    // other procedurally-simulated match, just with real team names.
     saveMatch(m);
+  }
+}
+// One-time cleanup for databases seeded before the change above: demotes any
+// already-verified row that matches one of buildRealFixtures()'s recurring
+// placeholder fixtures back to a normal (non-verified) match, so an already-
+// running deployment's "Verified real matches" tab also stops showing them,
+// not just freshly-seeded ones. Matched by sport/league/home/away only (not
+// `start`, which recomputes every boot) and only touches matches still in
+// play (not yet ended), so a genuinely-finished historical result is left
+// alone.
+function demoteUnreliableVerifiedFixtures() {
+  for (const fx of buildRealFixtures()) {
+    const rows = db.prepare('SELECT id, data FROM matches WHERE sport = ? AND league = ? AND home = ? AND away = ? AND ended = 0 AND verified = 1')
+      .all('football', fx.league, fx.home, fx.away);
+    for (const row of rows) {
+      const m = JSON.parse(row.data);
+      m.verified = false;
+      saveMatch(m);
+    }
   }
 }
 // One-off, dated real-world fixtures (as opposed to buildRealFixtures()'s
@@ -508,6 +535,15 @@ function buildSpecialFixtures() {
     { league: "UEFA Women's Champions League", home: 'Servette FC Chenois (W)', away: 'OL Lyonnes (W)', start: beirutWallToUtc(2026, 9, 23, 19, 45), odds: [67.00, 21.00, 1.015] },
     { league: "UEFA Women's Champions League", home: 'Barcelona (W)', away: 'Paris FC (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 17.00, 51.00] },
     { league: "UEFA Women's Champions League", home: 'Chelsea (W)', away: 'FK Austria Vienna (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 19.00, 51.00] },
+    // Colombia — Categoría Primera A / Liga BetPlay, matchday 12. Kickoff
+    // 19:00 Bogotá time (UTC-5, no DST) = 03:00 Beirut the next calendar day.
+    // Deep search on the other big South American leagues for this same
+    // window came up empty/unconfirmed: Brazil's Série A has no fixtures at
+    // all between 20 Sep and 2 Oct 2026 (an international-break gap), and
+    // Argentina's Liga Profesional round for this week couldn't be pinned to
+    // an exact, reliably-sourced date/time — so neither is included here
+    // rather than guessing at "real" matches that aren't actually confirmed.
+    { league: 'Categoría Primera A', home: 'Independiente Medellín', away: 'Jaguares de Córdoba', start: beirutWallToUtc(2026, 9, 23, 3, 0), odds: [1.30, 5.00, 9.00] },
   ];
 }
 function seedSpecialFixtures() {
@@ -696,6 +732,7 @@ let engineTimer = null;
 function startEngine(onSettle) {
   if (engineTimer) return;
   seedIfEmpty();
+  demoteUnreliableVerifiedFixtures();
   seedSpecialFixtures();
   maybeKickoff();
   engineTimer = setInterval(() => tick(onSettle), 3000);

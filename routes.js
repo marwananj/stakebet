@@ -709,6 +709,34 @@ route('POST', '/api/admin/matches/:id/suspend', (req, res, p, body) => {
   json(res, 200, { match: m });
 }, { auth: true, admin: true });
 
+// Stoppage/injury time for a live, real 90-minute football match — the admin
+// sets how many extra minutes get added on top of the 45th (half) or 90th
+// (full-time) minute, exactly like a fourth official's board. `half: 'HT'`
+// sets the first-half added time (delays the half-time whistle and, once it
+// fires, the second half still cleanly resumes counting from 46' — see
+// engine.js's stepMinute() for the rebase that makes that work); `half: 'FT'`
+// extends the match's full-time cap (engine.js's capFor()) the same way.
+// Only meaningful for football; can be set before or during the relevant
+// half, any time before that half's whistle would otherwise blow.
+route('POST', '/api/admin/matches/:id/added-time', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  if (m.sport !== 'football') return json(res, 400, { error: 'Added time only applies to football matches.' });
+  const half = String(body?.half || '').toUpperCase();
+  const minutes = Math.max(0, Math.min(15, Math.round(+body?.minutes || 0)));
+  if (half === 'HT') {
+    if (m.htScore) return json(res, 400, { error: 'Half-time has already passed for this match.' });
+    m.addedHT = minutes;
+  } else if (half === 'FT') {
+    if (m.ended) return json(res, 400, { error: 'Match has already ended.' });
+    m.addedFT = minutes;
+  } else {
+    return json(res, 400, { error: "half must be 'HT' or 'FT'." });
+  }
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
 // Kickoff can be given either as "starts in N minutes" (quick/relative) or as
 // an explicit Beirut-local date + time (kickoffDate 'YYYY-MM-DD' + kickoffTime
 // 'HH:MM', both interpreted as Asia/Beirut, fixed UTC+3 — see engine.js's

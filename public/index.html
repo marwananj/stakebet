@@ -186,7 +186,21 @@ a{color:var(--accent)}
 .navb.on{background:linear-gradient(135deg,var(--accent-soft),rgba(0,229,214,.05));color:var(--accent);font-weight:700;box-shadow:inset 0 0 0 1px rgba(0,229,214,.3)}
 .main{grid-column:2;overflow-y:auto;padding:20px 22px 60px}
 .slipcol{grid-column:3;border-left:1px solid var(--line);background:var(--surface);overflow-y:auto;display:flex;flex-direction:column}
-@media (max-width:1100px){.layout{grid-template-columns:0 1fr 0}.rail,.slipcol{display:none}.rail.open,.slipcol.open{display:block;position:fixed;top:56px;bottom:0;z-index:50;width:260px}.rail.open{left:0}.slipcol.open{right:0;width:320px}}
+@media (max-width:1100px){
+  .layout{grid-template-columns:0 1fr 0}
+  .rail,.slipcol{display:none}
+  .rail.open,.slipcol.open{position:fixed;top:56px;bottom:0;z-index:50;width:260px}
+  .rail.open{display:block;left:0}
+  /* .slipcol's un-hidden state is normally display:flex (see its base rule)
+     so .slip-body's flex:1 can stretch to fill the column and scroll while
+     the "Place bet" footer stays pinned below it. Reopening it as display:
+     block here (matching .rail.open, a plain nav list with no such layout)
+     silently broke that on every phone/narrow-window view: flex:1 does
+     nothing on a block-level child, so a slip with several legs pushed the
+     Place bet button below the visible drawer instead of keeping it pinned
+     and scrolling the legs above it. */
+  .slipcol.open{display:flex;right:0;width:min(320px,100vw)}
+}
 
 .page-h{margin-bottom:18px;display:flex;align-items:baseline;justify-content:space-between}
 .page-h h2{margin:0;font-size:21px;font-weight:700;letter-spacing:.1px;font-family:var(--display)}
@@ -255,10 +269,15 @@ a{color:var(--accent)}
 .leg-sel{font-size:13px;font-weight:700}
 .leg-mkt,.leg-match{font-size:11.5px;color:var(--dim)}
 .leg-odd{font-family:var(--mono);font-weight:800;color:var(--gold)}
-.leg-x{color:var(--dim);font-size:15px}
+/* padding + negative margin gives the ✕ a real ~32px tap target without
+   nudging the visible glyph or the layout around it — the bare 15px glyph
+   was hard to hit precisely on a touchscreen, so removing an unwanted leg
+   from the slip on mobile took a few tries. */
+.leg-x{color:var(--dim);font-size:15px;padding:9px;margin:-9px;cursor:pointer;line-height:1}
 .leg-x:hover{color:var(--down)}
 .leg-err{font-size:11px;color:var(--down);margin-top:6px}
 .stake-row{margin-top:8px}
+.stake-row .inp{font-size:16px}
 .slip-foot{border-top:1px solid var(--line);padding:14px 16px}
 .sum{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:6px}
 .sum b{color:var(--text)}
@@ -1304,7 +1323,7 @@ function refreshSlipOdds() {
     const sel = m.markets[l.mkt].sel.find(s => s.k === l.selK);
     if (sel && sel.o !== l.odds) { l.odds = sel.o; changed = true; }
   }
-  if (changed) renderSlip();
+  if (changed) { saveSlip(); patchSlipOdds(); }
 }
 function parlayOdds() { return S.slip.reduce((a, l) => a * l.odds, 1); }
 /* Bet-slip persistence is a pure UI convenience (client-side localStorage) —
@@ -1313,6 +1332,24 @@ function parlayOdds() { return S.slip.reduce((a, l) => a * l.odds, 1); }
 function saveSlip() { try { localStorage.setItem('sb_slip', JSON.stringify(S.slip)); } catch {} }
 function restoreSlip() {
   try { const raw = localStorage.getItem('sb_slip'); if (raw) S.slip = JSON.parse(raw) || []; } catch { S.slip = []; }
+}
+// Recomputes and writes just the footer's numbers (stake/return totals for
+// single mode, combined odds/return for parlay) without touching any input
+// or rebuilding any markup — shared by the stake-typing handler, the odds
+// live-update patch below, and the initial render.
+function updateSlipFooterSums() {
+  if (S.slipMode === 'parlay') {
+    const stakeInput = $('#parlayStake'), pRet = $('#pRet'), oddsEl = $('#slipParlayOdds');
+    const od = parlayOdds();
+    if (oddsEl) oddsEl.textContent = fmtOdds(od);
+    if (pRet && stakeInput) pRet.textContent = fmt((+stakeInput.value || 0) * od);
+  } else {
+    const st = S.slip.reduce((a, l) => a + (+l.stake || 0), 0);
+    const ret = S.slip.reduce((a, l) => a + (+l.stake || 0) * l.odds, 0);
+    const stakeEl = $('#slipStakeSum'), retEl = $('#slipRetSum');
+    if (stakeEl) stakeEl.textContent = fmt(st);
+    if (retEl) retEl.textContent = fmt(ret);
+  }
 }
 function renderSlip() {
   saveSlip();
@@ -1323,22 +1360,28 @@ function renderSlip() {
   const B = $('#slipBody'), F = $('#slipFoot');
   if (!n) { B.innerHTML = `<div class="empty" style="padding:30px 10px">Tap any price to add a selection.</div>`; F.innerHTML = ''; return; }
   const blocked = S.slip.some(l => l.gone);
+  // Every leg always renders both its stake row and its "unavailable" notice
+  // (tagged data-staker/data-err), just hidden with inline display:none when
+  // not applicable — rather than being left out of the markup entirely. That
+  // lets patchSlipOdds() below toggle which one shows by flipping a style,
+  // instead of having to rebuild the leg (and lose the stake input's focus)
+  // whenever a leg's availability changes.
   B.innerHTML = S.slip.map(l => `
-    <div class="leg">
+    <div class="leg" data-leg="${l.id}">
       <div class="leg-top">
         <div><div class="leg-sel">${esc(l.selName)}</div><div class="leg-mkt">${esc(l.mktLabel)}</div><div class="leg-match">${esc(l.matchName)}</div></div>
-        <div style="text-align:right"><div class="leg-odd">${fmtOdds(l.odds)}</div><button class="leg-x" data-rm="${l.id}">✕</button></div>
+        <div style="text-align:right"><div class="leg-odd" data-odd="${l.id}">${fmtOdds(l.odds)}</div><button class="leg-x" data-rm="${l.id}">✕</button></div>
       </div>
-      ${l.gone ? `<div class="leg-err">No longer available — remove to continue</div>` : ''}
-      ${S.slipMode === 'single' && !l.gone ? `<div class="stake-row"><input class="inp" type="number" inputmode="decimal" min="0.10" step="0.10" value="${l.stake}" data-stake="${l.id}"></div>` : ''}
+      <div class="leg-err" data-err="${l.id}" ${l.gone ? '' : 'style="display:none"'}>No longer available — remove to continue</div>
+      ${S.slipMode === 'single' ? `<div class="stake-row" data-staker="${l.id}" ${l.gone ? 'style="display:none"' : ''}><input class="inp" type="number" inputmode="decimal" min="0.10" step="0.10" value="${l.stake}" data-stake="${l.id}"></div>` : ''}
     </div>`).join('');
   if (S.slipMode === 'parlay') {
     const od = parlayOdds();
     F.innerHTML = `<div class="field"><label>Stake (USD)</label><input class="inp" id="parlayStake" type="number" inputmode="decimal" min="0.10" step="0.10" value="10"></div>
-      <div class="sum"><span>${n} legs combined</span><b>${fmtOdds(od)}</b></div>
+      <div class="sum"><span>${n} legs combined</span><b id="slipParlayOdds">${fmtOdds(od)}</b></div>
       <div class="sum big"><span>Potential return</span><b id="pRet">${fmt(10 * od)}</b></div>
       <button class="btn" id="placeBtn" ${blocked ? 'disabled' : ''}>${blocked ? 'Remove unavailable legs' : 'Place parlay'}</button>`;
-    $('#parlayStake').oninput = () => $('#pRet').textContent = fmt((+$('#parlayStake').value || 0) * parlayOdds());
+    $('#parlayStake').oninput = () => updateSlipFooterSums();
   } else {
     const st = S.slip.reduce((a, l) => a + (+l.stake || 0), 0);
     const ret = S.slip.reduce((a, l) => a + (+l.stake || 0) * l.odds, 0);
@@ -1352,24 +1395,53 @@ function renderSlip() {
   // being typed in. That destroys and recreates the input node each time,
   // so it loses focus/cursor position mid-type: it looked and felt like the
   // amount field was laggy or dropping keystrokes. Now typing only updates
-  // the in-memory stake and the two summary numbers directly (same
-  // lightweight approach the parlay stake input already used below) —
-  // nothing about the input itself is touched, so it types normally. A full
-  // renderSlip() still happens on structural changes (add/remove a leg,
-  // switch single/parlay mode, odds changing underneath a leg).
+  // the in-memory stake and the footer's totals directly — nothing about the
+  // input itself is touched, so it types normally. A full renderSlip() still
+  // happens on structural changes (add/remove a leg, switch single/parlay
+  // mode); an odds/availability change from the live poll is now handled by
+  // patchSlipOdds() below instead, for the same reason.
   B.oninput = e => {
     const i = e.target.closest('[data-stake]'); if (!i) return;
     const l = S.slip.find(x => x.id === i.dataset.stake); if (!l) return;
     l.stake = i.value;
     saveSlip();
-    if (S.slipMode === 'single') {
-      const st2 = S.slip.reduce((a, x) => a + (+x.stake || 0), 0);
-      const ret2 = S.slip.reduce((a, x) => a + (+x.stake || 0) * x.odds, 0);
-      const stakeEl = $('#slipStakeSum'), retEl = $('#slipRetSum');
-      if (stakeEl) stakeEl.textContent = fmt(st2);
-      if (retEl) retEl.textContent = fmt(ret2);
-    }
+    updateSlipFooterSums();
   };
+}
+// Called every poll (via refreshSlipOdds) when a leg's price or availability
+// changed underneath it. Used to call the full renderSlip(), which — same
+// bug as the stake-typing one above — tore down and rebuilt every stake
+// input on the board's normal 3-second refresh, so odds moving while you
+// were mid-type (or about to tap "Place bet") could reset your focus, your
+// cursor position, or the button you were about to press. This instead
+// patches only the odds text and the gone/available state of each existing
+// leg in place, then updates the footer totals — the DOM nodes for every
+// input and button are left completely alone. Falls back to a full
+// renderSlip() only if the rendered legs don't match what's in the slip
+// (e.g. this is the very first render, or something structural slipped
+// through), so it's always at least as correct as before.
+function patchSlipOdds() {
+  const B = $('#slipBody');
+  if (!B || !S.slip.length) return renderSlip();
+  for (const l of S.slip) {
+    const leg = B.querySelector(`[data-leg="${l.id}"]`);
+    if (!leg) return renderSlip();
+    const oddEl = leg.querySelector(`[data-odd="${l.id}"]`);
+    if (oddEl) oddEl.textContent = fmtOdds(l.odds);
+    const errEl = leg.querySelector(`[data-err="${l.id}"]`);
+    if (errEl) errEl.style.display = l.gone ? '' : 'none';
+    const stakeRow = leg.querySelector(`[data-staker="${l.id}"]`);
+    if (stakeRow) stakeRow.style.display = l.gone ? 'none' : '';
+  }
+  if (B.children.length !== S.slip.length) return renderSlip();
+  const blocked = S.slip.some(l => l.gone);
+  const btn = $('#placeBtn');
+  if (btn && !placingBets) {
+    btn.disabled = blocked;
+    const n = S.slip.length;
+    btn.textContent = blocked ? 'Remove unavailable legs' : (S.slipMode === 'parlay' ? 'Place parlay' : 'Place ' + (n > 1 ? n + ' bets' : 'bet'));
+  }
+  updateSlipFooterSums();
 }
 document.body.addEventListener('click', e => {
   const b = e.target.closest('.slip-mode button'); if (!b) return;
@@ -2058,29 +2130,24 @@ async function doRefreshAll() {
     });
 
     // Sound + toast: a goal/score change on a match you're watching or hold
-    // an open bet on. Also a lighter, sound-free toast for a goal on the
-    // sport board you're currently browsing, even with no money on it and
-    // without watching that specific match — so score changes aren't missed
-    // just because you're scanning the board rather than one match's page.
+    // an open bet on. The lighter "Score update" toast that used to also
+    // fire for any score change on the board you were merely browsing (no
+    // bet, not watching) has been removed — on a busy board with several
+    // live matches, those fired constantly and were a big part of what made
+    // the app feel laggy, since every one of them is still a DOM insert plus
+    // a timed removal. Sound/toast now stay reserved for what's actually
+    // yours: a bet you have open, or the specific match you're watching.
     const betMatchIds = new Set(bets.filter(b => b.status === 'open').flatMap(b => b.legs.map(l => l.matchId)));
     const relevantIds = new Set(betMatchIds);
     if (S.view === 'match' && S.watchId) relevantIds.add(S.watchId);
     [...S.matches, ...simMatches].forEach(m => {
       const cur = JSON.stringify(m.score);
       const prev = prevScoreByMatch[m.id];
-      if (prev !== undefined && prev !== cur) {
-        if (relevantIds.has(m.id)) {
-          soundGoal();
-          // A goal on a match you have money on — clickable toast straight to it.
-          if (betMatchIds.has(m.id)) {
-            toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
-          }
-        } else if (!m.sim && S.view === m.sport && !betMatchIds.has(m.id)) {
-          // Browsing that sport's board right now — flag the score change
-          // without a sound (sound stays reserved for bets/watched matches).
-          // Excludes sims: they never appear on that board, so a toast
-          // pointing at one while browsing it would be confusing.
-          toast('Score update', m.home + ' ' + m.score.join('–') + ' ' + m.away, 'ok', { type: 'match', id: m.id });
+      if (prev !== undefined && prev !== cur && relevantIds.has(m.id)) {
+        soundGoal();
+        // A goal on a match you have money on — clickable toast straight to it.
+        if (betMatchIds.has(m.id)) {
+          toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
         }
       }
       prevScoreByMatch[m.id] = cur;

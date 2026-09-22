@@ -549,6 +549,20 @@ function buildSpecialFixtures() {
     // an exact, reliably-sourced date/time — so neither is included here
     // rather than guessing at "real" matches that aren't actually confirmed.
     { league: 'Categoría Primera A', home: 'Independiente Medellín', away: 'Jaguares de Córdoba', start: beirutWallToUtc(2026, 9, 23, 3, 0), odds: [1.30, 5.00, 9.00] },
+    // UEFA Nations League A/B — Matchday 1, confirmed against UEFA's own
+    // published schedule. Kickoffs are 20:45/18:00 CEST → +1h = Beirut.
+    // (Unlike the old buildRealFixtures() Nations League entries — now
+    // demoted, see demoteUnreliableVerifiedFixtures() — these are dated,
+    // confirmed real fixtures, not a recurring placeholder.)
+    { league: 'UEFA Nations League A', home: 'Netherlands', away: 'Germany', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.37, 3.80, 2.70] },
+    { league: 'UEFA Nations League A', home: 'Norway', away: 'Denmark', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.70, 4.10, 4.50] },
+    { league: 'UEFA Nations League A', home: 'Portugal', away: 'Wales', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.22, 6.50, 13.00] },
+    { league: 'UEFA Nations League A', home: 'Serbia', away: 'Greece', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.62, 3.30, 2.70] },
+    { league: 'UEFA Nations League A', home: 'Italy', away: 'Belgium', start: beirutWallToUtc(2026, 9, 25, 21, 45), odds: [2.20, 3.50, 3.20] },
+    { league: 'UEFA Nations League A', home: 'Türkiye', away: 'France', start: beirutWallToUtc(2026, 9, 25, 21, 45), odds: [6.50, 4.75, 1.44] },
+    { league: 'UEFA Nations League B', home: 'Austria', away: 'Israel', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.42, 4.75, 6.50] },
+    { league: 'UEFA Nations League B', home: 'Kosovo', away: 'Republic of Ireland', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.40, 3.10, 3.10] },
+    { league: 'UEFA Nations League B', home: 'Georgia', away: 'Northern Ireland', start: beirutWallToUtc(2026, 9, 25, 19, 0), odds: [1.83, 3.50, 4.10] },
   ];
 }
 function seedSpecialFixtures() {

@@ -14,6 +14,65 @@ const now = () => Date.now();
 
 const SEC_PER_MATCH_MIN = 3; // 1 simulated minute = 3 real seconds, same pace as the original
 
+// ---------- Lebanon (Asia/Beirut, fixed UTC+3 — no DST) time helpers ----------
+// Everything "real-world time" in this app — the verified fixture kickoffs
+// below and any date/time an admin types in when adding a fixture — is meant
+// to be Beirut wall-clock time, not whatever timezone the server process
+// itself happens to be running in (a cloud host is typically UTC). Rather
+// than depend on the container having Beirut in its ICU/tz database, this
+// does the offset arithmetic by hand: a fixed +3h shift is applied, then all
+// reads/writes go through the UTC getters/setters on a Date shifted by that
+// same amount, so the result is identical no matter the host's own timezone.
+const BEIRUT_OFFSET_MS = 3 * 3600000;
+// Convert a Beirut wall-clock date/time (as entered by a person) to the real
+// UTC epoch ms it corresponds to.
+function beirutWallToUtc(year, month /* 1-12 */, day, hour, minute) {
+  return Date.UTC(year, month - 1, day, hour, minute || 0, 0, 0) - BEIRUT_OFFSET_MS;
+}
+// The next upcoming occurrence of a given weekday/hour/minute, expressed and
+// resolved entirely in Beirut wall-clock time.
+function nextWeekday(targetDow, hour, minute) {
+  const shiftedNow = now() + BEIRUT_OFFSET_MS; // reading this via UTC getters == Beirut wall clock
+  const d = new Date(shiftedNow);
+  d.setUTCHours(hour, minute || 0, 0, 0);
+  let add = (targetDow - d.getUTCDay() + 7) % 7;
+  if (add === 0 && d.getTime() <= shiftedNow) add = 7;
+  d.setUTCDate(d.getUTCDate() + add);
+  return d.getTime() - BEIRUT_OFFSET_MS;
+}
+
+// ---------- solving team strengths to match admin-entered 1X2 odds ----------
+// An admin typing in odds doesn't set the raw price directly (that would
+// freeze it and make every other market — O/U, BTTS, handicap, half-time —
+// inconsistent with it, and stop it reacting to goals once live). Instead,
+// the entered odds are de-vigged into fair probabilities and this does a
+// coarse search over the same [home attack, away attack] "strength" pair
+// (m.str) the rest of the engine already uses, picking whichever pair's
+// modeled 1X2 probabilities are closest to what was asked for. From there
+// the normal priceMatch()/footballProbs() pipeline takes over — every other
+// market derives from these same strengths and everything still updates
+// live and settles exactly like a procedurally-generated fixture.
+function strengthsForOdds(oddsHome, oddsDraw, oddsAway) {
+  const rawH = 1 / oddsHome, rawD = 1 / oddsDraw, rawA = 1 / oddsAway;
+  const over = rawH + rawD + rawA;
+  const targetH = rawH / over, targetD = rawD / over, targetA = rawA / over;
+  let best = null, bestErr = Infinity;
+  for (let lh = 0.3; lh <= 3.6; lh += 0.1) {
+    for (let la = 0.3; la <= 3.6; la += 0.1) {
+      let pH = 0, pD = 0, pA = 0;
+      for (let i = 0; i <= 8; i++) {
+        for (let j = 0; j <= 8; j++) {
+          const p = pois(i, lh) * pois(j, la);
+          if (i > j) pH += p; else if (i === j) pD += p; else pA += p;
+        }
+      }
+      const err = (pH - targetH) ** 2 + (pD - targetD) ** 2 + (pA - targetA) ** 2;
+      if (err < bestErr) { bestErr = err; best = [lh, la]; }
+    }
+  }
+  return best;
+}
+
 const TEAMS = {
   football: {
     'Premier League': ['Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'Man United', 'West Ham'],
@@ -21,6 +80,14 @@ const TEAMS = {
     'Serie A': ['Inter', 'Juventus', 'Napoli', 'Milan', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina'],
     'Bundesliga': ['Bayern Munich', 'Bayer Leverkusen', 'Borussia Dortmund', 'RB Leipzig', 'Eintracht Frankfurt', 'VfB Stuttgart'],
     'Ligue 1': ['PSG', 'Monaco', 'Marseille', 'Lyon', 'Lille', 'Nice'],
+    'Süper Lig': ['Galatasaray', 'Fenerbahçe', 'Beşiktaş', 'Trabzonspor', 'Başakşehir', 'Adana Demirspor'],
+    'Primeira Liga': ['Benfica', 'Porto', 'Sporting CP', 'Braga', 'Vitória SC', 'Famalicão'],
+    'UEFA Champions League': ['Real Madrid', 'Bayern Munich', 'Paris Saint-Germain', 'Inter', 'Barcelona', 'Manchester City', 'Liverpool', 'Arsenal'],
+    // Nations League groupings use national teams, not clubs — same
+    // structure works fine since a league here is just a named pool of teams.
+    'UEFA Nations League A': ['France', 'Germany', 'Portugal', 'Spain', 'Italy', 'Netherlands', 'Belgium', 'England'],
+    'UEFA Nations League B': ['Turkey', 'Wales', 'Austria', 'Switzerland', 'Israel', 'Serbia', 'Norway', 'Ukraine'],
+    'UEFA Nations League C': ['Montenegro', 'Latvia', 'Armenia', 'Cyprus', 'Albania', 'Finland', 'Kazakhstan', 'Slovakia'],
   },
   basketball: { 'NBA': ['Boston Celtics', 'Denver Nuggets', 'LA Lakers', 'Golden State', 'Milwaukee', 'Phoenix Suns', 'Miami Heat', 'Dallas Mavericks', 'New York Knicks', 'Minnesota'] },
   tennis: { 'ATP 1000': ['Alcaraz', 'Sinner', 'Djokovic', 'Medvedev', 'Zverev', 'Rublev', 'Rune', 'De Minaur'] },
@@ -310,18 +377,11 @@ function genFixtures(sportId, league, teams) {
 // recognizable real competitions, mirroring the original prototype's
 // REAL_FIXTURES pattern. There's no live real-world results feed behind
 // this — these are just real team names/competitions with a kickoff time
-// computed relative to `now()` (next occurrence of a given weekday/hour) so
-// they never look stale, unlike a hardcoded past date would. They're seeded
-// once alongside the normal procedural fixtures and marked m.verified = true,
+// computed relative to `now()` (next occurrence of a given weekday/hour, in
+// Beirut time — see nextWeekday() near the top of this file) so they never
+// look stale, unlike a hardcoded past date would. They're seeded once
+// alongside the normal procedural fixtures and marked m.verified = true,
 // same flag the admin-added-fixture flow already uses for its "✓ Verified" badge.
-function nextWeekday(targetDow, hour, minute) {
-  const d = new Date();
-  d.setHours(hour, minute || 0, 0, 0);
-  let add = (targetDow - d.getDay() + 7) % 7;
-  if (add === 0 && d.getTime() <= now()) add = 7;
-  d.setDate(d.getDate() + add);
-  return d.getTime();
-}
 function buildRealFixtures() {
   // One matchday's worth of headline, real-team fixtures per league already
   // on the board (plus Champions League), so every league — not just one —
@@ -341,6 +401,18 @@ function buildRealFixtures() {
     { league: 'UEFA Champions League', home: 'Real Madrid', away: 'Bayern Munich', start: nextWeekday(2, 21, 0) },
     { league: 'UEFA Champions League', home: 'Paris Saint-Germain', away: 'Inter', start: nextWeekday(2, 21, 0) },
     { league: 'UEFA Champions League', home: 'Barcelona', away: 'Manchester City', start: nextWeekday(3, 21, 0) },
+    { league: 'Süper Lig', home: 'Galatasaray', away: 'Fenerbahçe', start: nextWeekday(0, 19, 0) },
+    { league: 'Süper Lig', home: 'Beşiktaş', away: 'Trabzonspor', start: nextWeekday(6, 17, 0) },
+    { league: 'Primeira Liga', home: 'Benfica', away: 'Porto', start: nextWeekday(0, 20, 30) },
+    { league: 'Primeira Liga', home: 'Sporting CP', away: 'Braga', start: nextWeekday(6, 19, 0) },
+    // Nations League matchdays run roughly two weeks apart — spreading these
+    // a couple of days apart (rather than all on one night) mirrors that.
+    { league: 'UEFA Nations League A', home: 'France', away: 'Germany', start: nextWeekday(2, 20, 45) },
+    { league: 'UEFA Nations League A', home: 'Portugal', away: 'Spain', start: nextWeekday(3, 20, 45) },
+    { league: 'UEFA Nations League A', home: 'Italy', away: 'Netherlands', start: nextWeekday(2, 20, 45) },
+    { league: 'UEFA Nations League B', home: 'Turkey', away: 'Wales', start: nextWeekday(3, 20, 45) },
+    { league: 'UEFA Nations League B', home: 'Switzerland', away: 'Serbia', start: nextWeekday(2, 18, 0) },
+    { league: 'UEFA Nations League C', home: 'Armenia', away: 'Cyprus', start: nextWeekday(3, 18, 0) },
   ];
 }
 function seedRealFixtures() {
@@ -403,12 +475,28 @@ function topUpFixtures() {
 // fills up the way a real multi-league book's does ("many matches, real and
 // live" rather than a handful of matches starved across five competitions).
 const MAX_LIVE_PER_LEAGUE = 2;
+function kickOffFresh(m) {
+  m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50; m.score = [0, 0];
+  if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
+  priceMatch(m);
+  saveMatch(m);
+}
 function maybeKickoff() {
   for (const s of SPORTS) {
     for (const lg of Object.keys(TEAMS[s.id])) {
+      const upcomingAll = () => listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
+      // A verified fixture (admin-added, or one of the curated real-world
+      // ones) carries an explicit, deliberately-chosen kickoff time, so it
+      // always goes live right at that time — even if it means briefly
+      // exceeding the league's normal live cap below. An admin who set
+      // "23/09 8:00 PM" expects the match to actually start then, not
+      // silently wait for a slot some procedurally-generated filler fixture
+      // is occupying.
+      upcomingAll().filter((m) => m.verified && m.start <= now()).forEach(kickOffFresh);
+
       const live = listMatches({ sport: s.id, live: true, ended: false }).filter((m) => m.league === lg);
       if (live.length >= MAX_LIVE_PER_LEAGUE) continue;
-      const upcoming = listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
+      const upcoming = upcomingAll();
       if (!upcoming.length) continue;
       let due = upcoming.filter((m) => m.start <= now());
       // Never let a league's board go completely dark: if nothing is live at
@@ -419,11 +507,7 @@ function maybeKickoff() {
         if (live.length === 0) due = [upcoming.sort((a, b) => a.start - b.start)[0]];
         else continue; // wait for a fixture's own kick-off time, same as a real schedule
       }
-      const m = pick(due);
-      m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50; m.score = [0, 0];
-      if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
-      priceMatch(m);
-      saveMatch(m);
+      kickOffFresh(pick(due));
     }
   }
 }
@@ -475,4 +559,5 @@ module.exports = {
   TEAMS, SPORTS, priceMatch, makeMatch, isSuspended, capFor,
   saveMatch, getMatch, listMatches, startEngine, CONFIG,
   startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
+  BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds, MAX_LIVE_PER_LEAGUE,
 };

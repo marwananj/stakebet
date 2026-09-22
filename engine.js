@@ -56,9 +56,14 @@ function strengthsForOdds(oddsHome, oddsDraw, oddsAway) {
   const rawH = 1 / oddsHome, rawD = 1 / oddsDraw, rawA = 1 / oddsAway;
   const over = rawH + rawD + rawA;
   const targetH = rawH / over, targetD = rawD / over, targetA = rawA / over;
+  // Range/step widened from the original 0.3–3.6 (step 0.1) so heavily
+  // lopsided real-world odds (a near-certain favourite like 1.02 against a
+  // 50+ underdog) can actually be reached — the narrower grid used to bottom
+  // out well short of matching odds that skewed, e.g. solving for a "1.025 /
+  // 19.00 / 51.00" line landed on something closer to "1.01 / 17.7 / 74.9".
   let best = null, bestErr = Infinity;
-  for (let lh = 0.3; lh <= 3.6; lh += 0.1) {
-    for (let la = 0.3; la <= 3.6; la += 0.1) {
+  for (let lh = 0.15; lh <= 4.5; lh += 0.05) {
+    for (let la = 0.15; la <= 4.5; la += 0.05) {
       let pH = 0, pD = 0, pA = 0;
       for (let i = 0; i <= 8; i++) {
         for (let j = 0; j <= 8; j++) {
@@ -484,6 +489,55 @@ function seedRealFixtures() {
     saveMatch(m);
   }
 }
+// One-off, dated real-world fixtures (as opposed to buildRealFixtures()'s
+// recurring "next Tuesday/Wednesday" ones) — e.g. a specific matchday copied
+// in from a real competition's real schedule and odds. Runs on every boot
+// (not just when the DB is empty, unlike seedRealFixtures()/seedIfEmpty()),
+// but is idempotent: it skips any fixture that already exists for the same
+// league/teams/kickoff so restarting the server never creates duplicates.
+// Every match here is `verified`, so stepMinute()'s admin-only scoring gate
+// applies — the engine will never touch their score; only the admin can, via
+// force-score, exactly the "full result only admin put" behaviour requested.
+function buildSpecialFixtures() {
+  return [
+    // UEFA Women's Champions League — Matchday 1, Wed 23 Sep 2026 (Beirut time)
+    { league: "UEFA Women's Champions League", home: 'Real Madrid (W)', away: 'PSG (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.44, 4.50, 7.00] },
+    { league: "UEFA Women's Champions League", home: 'Juventus (W)', away: 'Benfica (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.72, 3.20, 5.50] },
+    { league: "UEFA Women's Champions League", home: 'Arsenal (W)', away: 'HB Køge (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.10, 8.00, 15.00] },
+    { league: "UEFA Women's Champions League", home: 'OH Leuven (W)', away: 'Roma (W)', start: beirutWallToUtc(2026, 9, 23, 19, 45), odds: [3.90, 4.20, 1.61] },
+    { league: "UEFA Women's Champions League", home: 'Servette FC Chenois (W)', away: 'OL Lyonnes (W)', start: beirutWallToUtc(2026, 9, 23, 19, 45), odds: [67.00, 21.00, 1.015] },
+    { league: "UEFA Women's Champions League", home: 'Barcelona (W)', away: 'Paris FC (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 17.00, 51.00] },
+    { league: "UEFA Women's Champions League", home: 'Chelsea (W)', away: 'FK Austria Vienna (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 19.00, 51.00] },
+  ];
+}
+function seedSpecialFixtures() {
+  for (const fx of buildSpecialFixtures()) {
+    const dupe = db.prepare('SELECT id FROM matches WHERE sport = ? AND league = ? AND home = ? AND away = ? AND start = ?')
+      .get('football', fx.league, fx.home, fx.away, Math.round(fx.start));
+    if (dupe) continue;
+    const m = makeMatch('football', fx.league, fx.home, fx.away, false);
+    m.start = fx.start;
+    m.verified = true;
+    const [oh, od, oa] = fx.odds;
+    const str = strengthsForOdds(oh, od, oa);
+    if (str) m.str = str;
+    priceMatch(m);
+    // The Poisson-grid solve above gets every other market (O/U, BTTS,
+    // handicap…) internally consistent, but at very lopsided odds (a heavy
+    // 1.01-ish favourite against a 50+ underdog) the grid's own resolution
+    // can't quite reach the exact typed price. Since the whole point here is
+    // "same odds" as given, pin the pregame 1X2 line to the exact input —
+    // once the match kicks off, live play reprices it (and everything else)
+    // off the solved strengths as normal, same as any other fixture.
+    if (m.markets['1X2']) {
+      const sel = m.markets['1X2'].sel;
+      sel.find((s) => s.k === '1').o = oh;
+      sel.find((s) => s.k === 'X').o = od;
+      sel.find((s) => s.k === '2').o = oa;
+    }
+    saveMatch(m);
+  }
+}
 // Kicks a single fixture off mid-match (random elapsed clock/score) — shared
 // by the boot-time seed below and used to bring a league straight to a live
 // match instead of waiting for its scheduled kickoff.
@@ -584,10 +638,19 @@ function maybeKickoff() {
       // Never let a league's board go completely dark: if nothing is live at
       // all in this league, kick off the soonest upcoming fixture right away
       // instead of waiting out its scheduled start — a real book always has
-      // *something* on, even if the strict schedule says otherwise.
+      // *something* on, even if the strict schedule says otherwise. This
+      // filler-only fallback must never pick a *verified* fixture — those
+      // carry a deliberately-chosen real kickoff time (e.g. tomorrow at
+      // 21:00), and force-starting one early just because its league has
+      // nothing live yet would silently move a real match's kickoff. A
+      // verified fixture only ever goes live via the `.filter(m => m.verified
+      // && m.start <= now())` line above, right at its own scheduled time.
       if (!due.length) {
-        if (live.length === 0) due = [upcoming.sort((a, b) => a.start - b.start)[0]];
-        else continue; // wait for a fixture's own kick-off time, same as a real schedule
+        if (live.length === 0) {
+          const filler = upcoming.filter((m) => !m.verified).sort((a, b) => a.start - b.start)[0];
+          due = filler ? [filler] : [];
+        }
+        if (!due.length) continue; // nothing fillable — wait for a fixture's own kick-off time
       }
       kickOffFresh(pick(due));
     }
@@ -633,6 +696,7 @@ let engineTimer = null;
 function startEngine(onSettle) {
   if (engineTimer) return;
   seedIfEmpty();
+  seedSpecialFixtures();
   maybeKickoff();
   engineTimer = setInterval(() => tick(onSettle), 3000);
 }

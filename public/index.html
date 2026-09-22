@@ -21,6 +21,21 @@
   --glow-neon:0 0 0 1px rgba(255,46,154,.4),0 0 24px -2px rgba(255,46,154,.5);
 }
 @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap');
+/* ---- light theme override (same variable names, flipped values) ---- */
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ink:#F5F7FA; --surface:#FFFFFF; --raised:#F1F3F8; --raised2:#E7E9F2;
+    --line:#DDE1EC; --line2:#C7CCDC;
+    --text:#0F0F17; --muted:#5B5A72; --dim:#8A889C;
+    --accent-soft:rgba(0,180,170,.14); --neon-soft:rgba(255,46,154,.14);
+  }
+}
+:root[data-theme="light"]{
+  --ink:#F5F7FA; --surface:#FFFFFF; --raised:#F1F3F8; --raised2:#E7E9F2;
+  --line:#DDE1EC; --line2:#C7CCDC;
+  --text:#0F0F17; --muted:#5B5A72; --dim:#8A889C;
+  --accent-soft:rgba(0,180,170,.14); --neon-soft:rgba(255,46,154,.14);
+}
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{
@@ -58,7 +73,7 @@ a{color:var(--accent)}
 
 /* top utility bar */
 .util-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 32px;font-size:12px;color:var(--dim);
-  border-bottom:1px solid var(--line);background:#07080B}
+  border-bottom:1px solid var(--line);background:var(--ink)}
 .util-bar .side{display:flex;align-items:center;gap:18px}
 .util-bar a{color:var(--dim);text-decoration:none;transition:color .15s}
 .util-bar a:hover{color:var(--text)}
@@ -94,7 +109,7 @@ a{color:var(--accent)}
 }
 
 /* sport category sub-nav */
-.sportnav{display:flex;gap:4px;padding:11px 32px;border-bottom:1px solid var(--line);overflow-x:auto;background:#08090C}
+.sportnav{display:flex;gap:4px;padding:11px 32px;border-bottom:1px solid var(--line);overflow-x:auto;background:var(--ink)}
 .sportnav::-webkit-scrollbar{display:none}
 .sportnav button{display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px 9px 0 0;font-size:13px;font-weight:700;
   color:var(--muted);white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s}
@@ -148,7 +163,7 @@ a{color:var(--accent)}
 
 /* ---- app shell ---- */
 #app{height:100%;display:grid;grid-template-rows:auto 1fr}
-.topbar{display:flex;align-items:center;gap:14px;padding:11px 18px;background:linear-gradient(180deg,var(--surface),#0F1117);
+.topbar{display:flex;align-items:center;gap:14px;padding:11px 18px;background:linear-gradient(180deg,var(--surface),var(--ink));
   border-bottom:1px solid var(--line);position:relative;z-index:5}
 .topbar .mark{box-shadow:var(--glow-cyan)}
 .spacer{flex:1}
@@ -186,6 +201,12 @@ a{color:var(--accent)}
 .m-meta{font-size:11.5px;color:var(--dim);margin-top:6px;display:flex;align-items:center;gap:6px}
 .m-meta .clock{color:var(--down);font-family:var(--mono);font-weight:700;display:inline-flex;align-items:center;gap:5px}
 .m-meta .clock::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px var(--down-soft);animation:pulse 1.4s infinite}
+.sim-card{transition:border-color .14s,transform .14s}
+.sim-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.sim-card .sc-top{display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:8px;text-transform:capitalize}
+.sim-card .sc-live{display:inline-flex;align-items:center;gap:6px;color:var(--down);font-weight:700;letter-spacing:.02em}
+.sim-card .sc-live i{width:6px;height:6px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px var(--down-soft);animation:pulse 1.4s infinite}
+.sim-card .sc-teams{font-size:14.5px;font-weight:600;font-family:var(--mono)}
 .odds{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
 .o{position:relative;display:flex;flex-direction:column;align-items:center;padding:9px 4px;background:var(--raised);border:1px solid var(--line2);border-radius:9px;
   transition:transform .12s,box-shadow .12s,background .12s,border-color .12s}
@@ -199,7 +220,9 @@ a{color:var(--accent)}
 
 /* ---- slip ---- */
 .slip-h{padding:14px 16px;border-bottom:1px solid var(--line);font-weight:800;font-size:14.5px;letter-spacing:.2px;
-  background:linear-gradient(180deg,rgba(0,229,214,.07),transparent)}
+  background:linear-gradient(180deg,rgba(0,229,214,.07),transparent);display:flex;align-items:center;gap:8px}
+.slip-close{display:none}
+@media (max-width:1100px){.slip-close{display:flex}}
 .slip-mode{display:flex;gap:3px;padding:11px 15px 0}
 .slip-mode button{flex:1;padding:8px;font-size:12.5px;color:var(--muted);border-radius:8px;background:var(--raised);font-weight:600;transition:background .15s,color .15s}
 .slip-mode button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 4px 10px -3px rgba(0,229,214,.5)}
@@ -226,6 +249,20 @@ a{color:var(--accent)}
 .stat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--accent),var(--gold))}
 .stat .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
 .stat .v{font-family:var(--mono);font-size:21px;font-weight:800;margin-top:2px}
+/* ---- wallet: network picker / fake QR / deposit address ---- */
+.kv{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kv:last-child{border-bottom:none}
+.netpick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:15px}
+.netpick button{padding:11px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--raised);text-align:center;transition:border-color .14s}
+.netpick button .n{font-size:13px;font-weight:600}
+.netpick button .f{font-size:11px;color:var(--dim);margin-top:2px}
+.netpick button[aria-selected="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.netpick button[aria-selected="true"] .n{color:var(--accent)}
+.qr{width:150px;height:150px;margin:0 auto 14px;padding:9px;background:#fff;border-radius:10px;display:grid;grid-template-columns:repeat(21,1fr);grid-template-rows:repeat(21,1fr)}
+.qr i{background:#07070B;border-radius:.5px}
+.addr{display:flex;gap:8px;align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:10px 11px;margin-bottom:12px}
+.addr code{flex:1;font-family:var(--mono);font-size:11.5px;word-break:break-all;line-height:1.5}
+.note{font-size:11.5px;color:var(--muted);background:var(--accent-soft);border-left:2px solid var(--accent);border-radius:0 7px 7px 0;padding:9px 11px;line-height:1.6}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:10px 12px;font-size:10.5px;color:var(--dim);border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.4px;font-weight:700;background:var(--raised)}
 td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -235,6 +272,9 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tag.lost{background:var(--down-soft);color:var(--down)}
 .tag.open{background:var(--accent-soft);color:var(--accent)}
 .tag.void{background:var(--raised2);color:var(--muted)}
+.tag.live-hint-winning{background:var(--up-soft);color:var(--up)}
+.tag.live-hint-losing{background:var(--down-soft);color:var(--down)}
+.tag.live-hint-push{background:var(--raised2);color:var(--muted)}
 
 .toasts{position:fixed;right:16px;bottom:16px;z-index:90;display:flex;flex-direction:column;gap:8px;max-width:320px}
 .toast{background:var(--surface);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:var(--r);padding:12px 14px;box-shadow:0 16px 40px rgba(0,0,0,.5);animation:slidein .25s ease}
@@ -242,7 +282,126 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .toast p{margin:0;font-size:12px;color:var(--muted)}
 .toast.bad{border-left-color:var(--down)}
 .toast.ok{border-left-color:var(--up)}
+.toast.clickable{cursor:pointer;transition:background .15s}
+.toast.clickable:hover{background:var(--raised)}
 @keyframes slidein{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+.match{cursor:pointer}
+.mkt-block{margin-bottom:18px}
+.mkt-block h4{margin:0 0 8px;font-size:12.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.mkt-block .odds{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+.ev-feed{max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.ev-feed .ev{padding:9px 12px;border-bottom:1px solid var(--line);font-size:12.5px;display:flex;justify-content:space-between;gap:10px}
+.ev-feed .ev:last-child{border-bottom:0}
+.ev-feed .ev span{color:var(--dim);font-family:var(--mono);font-size:11px;white-space:nowrap}
+
+/* ---- live chat ---- */
+.chat-fab{position:fixed;left:20px;bottom:20px;z-index:70;width:52px;height:52px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;font-size:22px;
+  box-shadow:0 10px 24px -6px rgba(0,229,214,.55);display:flex;align-items:center;justify-content:center}
+.chat-badge{position:absolute;top:-2px;right:-2px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--down);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.chat-panel{position:fixed;left:20px;bottom:82px;z-index:70;width:320px;max-width:calc(100vw - 40px);height:420px;max-height:60vh;
+  background:var(--surface);border:1px solid var(--line2);border-radius:var(--r-lg);box-shadow:0 24px 50px -14px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line);font-weight:700;font-size:13px}
+.chat-body{flex:1;overflow-y:auto;padding:10px 13px;display:flex;flex-direction:column;gap:9px}
+.chat-msg{font-size:12.5px;line-height:1.4;max-width:88%}
+.chat-msg b{color:var(--accent);font-weight:700;margin-right:4px}
+.chat-msg.mine{align-self:flex-end;text-align:right}
+.chat-msg.mine b{color:var(--up)}
+.chat-msg .ct{color:var(--dim);font-size:10.5px}
+.chat-inputrow{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+.chat-inputrow input{flex:1}
+@media (max-width:560px){.chat-panel{left:10px;right:10px;width:auto;bottom:76px}.chat-fab{left:12px;bottom:70px}}
+
+/* ---- live pitch / field / goal celebration (ported from the reference
+   prototype's .pitch/.field3d/.confetti pattern) ---- */
+.pitch{background:radial-gradient(ellipse at 50% -10%,rgba(255,209,102,.09),transparent 55%),linear-gradient(170deg,var(--raised),var(--surface));border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;margin-bottom:18px;position:relative;overflow:hidden;transition:box-shadow .4s,border-color .4s}
+.pitch::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 38px,rgba(255,255,255,.018) 38px 76px);pointer-events:none}
+.pitch::before{content:'';position:absolute;inset:0;box-shadow:inset 0 0 70px rgba(0,0,0,.35);pointer-events:none;border-radius:inherit}
+.pitch.celebrating{box-shadow:inset 0 0 0 2px var(--accent),0 0 50px -4px var(--accent-soft);border-color:var(--accent);animation:pitchShake .5s ease-out}
+@keyframes pitchShake{0%{transform:translateX(0)}12%{transform:translateX(-7px)}24%{transform:translateX(6px)}36%{transform:translateX(-5px)}48%{transform:translateX(4px)}62%{transform:translateX(-2px)}78%{transform:translateX(1px)}100%{transform:translateX(0)}}
+.pitch.suspending{box-shadow:inset 0 0 0 1px var(--down),0 0 30px -10px var(--down-soft);animation:pSuspPulse 1.6s ease-in-out infinite}
+@keyframes pSuspPulse{0%,100%{border-color:var(--line)}50%{border-color:var(--down)}}
+.sim-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:11px;color:var(--dim)}
+.sim-head .live-pill{display:flex;align-items:center;gap:6px;color:var(--down);font-weight:600;letter-spacing:.02em}
+.sim-head .live-pill i{width:6px;height:6px;border-radius:50%;background:var(--down);animation:pulse 1.8s ease-in-out infinite}
+.score-line{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;position:relative}
+.score-team{display:flex;flex-direction:column;align-items:center;gap:6px;transition:color .25s,transform .25s}
+.score-team.r{align-items:center}
+.score-team b{font-size:14.5px;font-weight:600;text-align:center}
+.score-team.scored{color:var(--accent);transform:scale(1.05)}
+.score-box{font-family:var(--mono);font-size:32px;font-weight:800;letter-spacing:-.03em;text-align:center;line-height:1}
+.goalburst{position:absolute;inset:0;z-index:5;display:grid;place-items:center;pointer-events:none;animation:burstFade 2.6s ease-out forwards}
+.goalburst.bannerlite{animation-duration:2.1s}
+@keyframes burstFade{0%{opacity:0}8%{opacity:1}78%{opacity:1}100%{opacity:0}}
+.goaltext{text-align:center;animation:goalPop .6s cubic-bezier(.2,1.8,.3,1) both}
+@keyframes goalPop{0%{transform:scale(.4) rotate(-4deg);opacity:0}60%{transform:scale(1.12) rotate(1deg);opacity:1}100%{transform:scale(1) rotate(0)}}
+.goaltext span{display:block;font-size:44px;font-weight:800;letter-spacing:-.02em;color:var(--accent);text-shadow:0 0 26px var(--accent-soft),0 4px 18px rgba(0,0,0,.5)}
+.goaltext.ht span,.goaltext.ft span{font-size:30px;color:var(--text);text-shadow:0 4px 18px rgba(0,0,0,.5)}
+.goaltext small{display:block;font-size:13px;color:var(--text);margin-top:2px;font-weight:500;background:var(--surface);border:1px solid var(--line2);padding:3px 12px;border-radius:20px}
+.confetti{position:absolute;inset:0;overflow:hidden}
+.confetti i{position:absolute;top:-8%;left:calc(var(--i)*4%);width:6px;height:11px;background:var(--h);border-radius:1px;opacity:.9;
+  animation:confFall 1.9s cubic-bezier(.3,.2,.6,1) both;animation-delay:calc(var(--i)*.035s);transform:rotate(0deg)}
+@keyframes confFall{0%{transform:translateY(-10%) rotate(0deg);opacity:0}10%{opacity:1}100%{transform:translateY(420%) rotate(540deg);opacity:0}}
+.goalring{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.goalring i{position:absolute;width:40px;height:40px;border-radius:50%;border:2px solid var(--accent);opacity:0;animation:ringOut 1.4s ease-out forwards}
+.goalring i:nth-child(2){animation-delay:.25s}.goalring i:nth-child(3){animation-delay:.5s}
+@keyframes ringOut{0%{transform:scale(.3);opacity:.7}100%{transform:scale(9);opacity:0}}
+@media (prefers-reduced-motion: reduce){.pitch.celebrating{animation:none}.goalburst:not(.bannerlite){animation:burstFade 2.6s ease-out forwards}.pitch.suspending{animation:none}}
+.fieldwrap{margin-top:16px}
+.momentum-bar{height:5px;border-radius:3px;overflow:hidden;display:flex;margin-bottom:8px;background:var(--line)}
+.momentum-bar i{display:block;height:100%;transition:width .8s ease}
+.momentum-bar .h{background:linear-gradient(90deg,var(--accent),rgba(0,229,214,.5))}
+.momentum-bar .a{background:linear-gradient(90deg,rgba(255,46,154,.5),var(--neon))}
+.field3d{position:relative;height:60px;border-radius:9px;background:linear-gradient(90deg,#1c3a28,#234a32,#1c3a28);border:1px solid rgba(255,255,255,.08);overflow:hidden}
+.field3d::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 120%,rgba(0,0,0,.4),transparent 60%);pointer-events:none}
+.fieldstripes{position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 5%,transparent 5% 10%)}
+.field3d.basketball{background:linear-gradient(90deg,#8a5a24,#a9702f,#8a5a24)}
+.field3d.basketball .fieldstripes{background:repeating-linear-gradient(90deg,rgba(0,0,0,.06) 0 5%,transparent 5% 10%)}
+.field3d.tennis{background:linear-gradient(90deg,#1a5478,#1f6690,#1a5478)}
+.field3d.tennis .fieldstripes{background:none}
+.field3d.basketball .ball{background:#e8862e;box-shadow:0 2px 6px rgba(0,0,0,.5),inset 0 0 0 1.5px #6b3d10}
+.field3d.tennis .ball{background:#d7e639;box-shadow:0 2px 6px rgba(0,0,0,.5),inset 0 0 0 1.5px #7c8a1c}
+.field3d.nfl{background:linear-gradient(90deg,#2b4d2b,#3a643a,#2b4d2b)}
+.field3d.nfl .fieldstripes{background:repeating-linear-gradient(90deg,rgba(255,255,255,.09) 0 3%,transparent 3% 10%)}
+.field3d.nfl .ball{background:#7b4a24;box-shadow:0 2px 6px rgba(0,0,0,.5),inset 0 0 0 1.5px #4a2c14}
+.field3d .box{position:absolute;top:14%;bottom:14%;width:13%;border:1.5px solid rgba(255,255,255,.28);border-radius:2px}
+.field3d .box.left{left:-1.5px;border-left:none}
+.field3d .box.right{right:-1.5px;border-right:none}
+.field3d .halfway{position:absolute;top:0;bottom:0;left:50%;width:1.5px;background:rgba(255,255,255,.28)}
+.field3d .centercirc{position:absolute;top:50%;left:50%;width:34px;height:34px;border:1.5px solid rgba(255,255,255,.28);border-radius:50%;transform:translate(-50%,-50%)}
+.field3d .ball{position:absolute;top:50%;width:13px;height:13px;background:#fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.5),0 0 0 2px rgba(0,0,0,.15) inset;
+  transform:translate(-50%,-50%);transition:left 1.1s cubic-bezier(.4,.1,.3,1);z-index:2}
+.momlabels{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);margin-top:6px}
+
+/* ---- derived match-stats panel ---- */
+.statgrid{display:grid;grid-template-columns:1fr auto 1fr;gap:6px 10px;align-items:center;font-size:12.5px}
+.statgrid .lbl{grid-column:1 / -1;text-align:center;color:var(--muted);font-size:11px;margin:6px 0 2px;text-transform:uppercase;letter-spacing:.4px}
+.statgrid .h{text-align:right;font-weight:700;font-family:var(--mono)}
+.statgrid .a{text-align:left;font-weight:700;font-family:var(--mono)}
+.statgrid .mid{text-align:center;color:var(--dim);font-size:11px}
+.statbar{grid-column:1 / -1;height:6px;border-radius:3px;overflow:hidden;display:flex;background:var(--line)}
+.statbar i{display:block;height:100%}
+.statbar .h{background:var(--accent)}
+.statbar .a{background:var(--neon)}
+
+/* ---- generic modal (withdraw, etc.) ---- */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:95;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal-box{width:100%;max-width:420px;max-height:90vh;overflow-y:auto;background:var(--surface);border:1px solid var(--line2);border-radius:var(--r-lg);padding:22px;box-shadow:0 30px 70px -20px rgba(0,0,0,.7);position:relative}
+.modal-box h3{margin:0 0 6px}
+.modal-close{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;background:var(--raised);color:var(--muted);display:grid;place-items:center}
+.modal-close:hover{color:var(--text);background:var(--raised2)}
+.chips{display:flex;gap:6px;margin-top:8px}
+.chips button{flex:1;padding:6px 0;border:1px solid var(--line2);border-radius:6px;font-size:11.5px;color:var(--muted);background:var(--raised)}
+.chips button:hover{color:var(--text);border-color:var(--accent)}
+
+/* ---- bonus poster card ---- */
+.bonus-card{background:linear-gradient(135deg,rgba(255,209,102,.14),rgba(0,229,214,.08)),var(--surface);border:1px solid var(--gold2);border-radius:var(--r-lg);padding:20px;margin-bottom:18px;text-align:center}
+.bonus-card .amt-big{font-family:var(--mono);font-size:34px;font-weight:800;color:var(--gold);margin:6px 0 12px}
+.bonus-card .field{max-width:260px;margin:0 auto 10px;text-align:left}
 
 .mobile-tab{display:none}
 @media (max-width:1100px){
@@ -250,6 +409,10 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
   .mobile-tab button{flex:1;padding:10px 0;font-size:11px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:600}
   .mobile-tab button.on{color:var(--accent)}
   .main{padding-bottom:70px}
+  .slip-tab-btn{position:relative}
+  .mtab-badge{position:absolute;top:2px;right:calc(50% - 22px);min-width:15px;height:15px;padding:0 3px;border-radius:9px;
+    background:var(--down);color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .slipcol.open{box-shadow:-10px 0 30px -10px rgba(0,0,0,.6)}
 }
 @media (max-width:640px){
   .match{grid-template-columns:1fr;gap:10px}
@@ -273,8 +436,8 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
       <a href="javascript:void(0)" data-scroll="herofeats">How it works</a>
     </div>
     <div class="nav-icons">
-      <button class="icon-btn" title="Sound">🔊</button>
-      <button class="icon-btn" title="Theme">☀️</button>
+      <button class="icon-btn soundBtn" title="Sound">🔊</button>
+      <button class="icon-btn themeBtn" title="Theme">☀️</button>
       <div class="nav-auth">
         <button class="btn-pill ghost" data-authgo="0">Log in</button>
         <button class="btn-pill solid" data-authgo="1">Join</button>
@@ -375,7 +538,7 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
       </div>
     </div>
 
-    <div class="foot18">18+ · Demo product — fake balances only. Data is stored in a real server-side SQLite database, shared by everyone who uses this site.</div>
+    <div class="foot18">18+ · Bet within your means.</div>
   </div>
   </div>
 </section>
@@ -385,13 +548,15 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
     <div class="brand" style="margin:0"><div class="mark">S</div><h1 style="font-size:15px">StakeBet</h1></div>
     <div class="spacer"></div>
     <div class="balance"><div class="lbl">Balance</div><div class="amt num" id="balanceAmt">$0.00</div></div>
+    <button class="icon-btn soundBtn" title="Sound">🔊</button>
+    <button class="icon-btn themeBtn" title="Theme">☀️</button>
     <button class="btn ghost sm" id="logoutBtn">Log out</button>
   </div>
   <div class="layout">
     <nav class="rail" id="rail"></nav>
     <main class="main" id="main"></main>
     <aside class="slipcol" id="slipcol">
-      <div class="slip-h">Bet slip <span id="slipCount" class="num" style="color:var(--dim)"></span></div>
+      <div class="slip-h">Bet slip <span id="slipCount" class="num" style="color:var(--dim)"></span><span style="flex:1"></span><button class="btn ghost sm slip-close" id="slipClose" style="width:auto;padding:4px 9px">✕</button></div>
       <div class="slip-mode">
         <button class="on" data-m="single">Singles</button>
         <button data-m="parlay">Parlay</button>
@@ -404,12 +569,33 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 </section>
 
 <div class="toasts" id="toasts"></div>
+<div id="modalRoot"></div>
+
+<button class="chat-fab hide" id="chatFab" title="Live chat">💬<span id="chatBadge" class="chat-badge hide">0</span></button>
+<div class="chat-panel hide" id="chatPanel">
+  <div class="chat-head"><span>💬 Live chat</span><span style="flex:1"></span><button class="btn ghost sm" id="chatClose" style="width:auto;padding:4px 9px">✕</button></div>
+  <div class="chat-body" id="chatBody"></div>
+  <div class="chat-inputrow">
+    <input class="inp" id="chatInput" placeholder="Say something…" maxlength="180" autocomplete="off">
+    <button class="btn sm" id="chatSend">Send</button>
+  </div>
+</div>
 
 <script>
 'use strict';
 const $=(s,r)=>(r||document).querySelector(s), $$=(s,r)=>[...(r||document).querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// Shared odds formatter — every place a price is displayed goes through this
+// instead of calling .toFixed(2) directly, so the decimal/american odds
+// format preference (S.user.oddsFormat, set from the profile page) applies
+// everywhere at once: the board, match detail, the bet slip and bet history.
+function fmtOdds(d){
+  d=Number(d);
+  if(!S.user||S.user.oddsFormat!=='american')return d.toFixed(2);
+  if(d>=2)return '+'+Math.round((d-1)*100);
+  return String(Math.round(-100/(d-1)));
+}
 
 /* ============ API layer — every write and every read goes through the
    server; nothing about balances, bets or matches lives in the browser. Only
@@ -429,13 +615,106 @@ async function api(method, path, body) {
 
 let S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [] };
 
-function toast(title, body, kind) {
+function toast(title, body, kind, nav) {
   const el = document.createElement('div');
-  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.className = 'toast' + (kind ? ' ' + kind : '') + (nav ? ' clickable' : '');
   el.innerHTML = `<b>${esc(title)}</b>${body ? `<p>${esc(body)}</p>` : ''}`;
+  if (nav) {
+    el.addEventListener('click', () => {
+      S.view = (nav.type === 'sim' ? 'match' : 'match'); S.watchId = nav.id; renderRoute();
+      el.remove();
+    });
+  }
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), 4500);
 }
+
+/* ============ GENERIC MODAL (used by the withdraw flow, standings popup,
+   etc.) — a minimal overlay with a close button, nothing fancier. ============ */
+function modal(html) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `<div class="modal-box"><button class="modal-close" data-modal-close>✕</button>${html}</div>`;
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  $('#modalRoot').appendChild(backdrop);
+  return backdrop;
+}
+function closeModal() { $$('.modal-backdrop').forEach((b) => b.remove()); }
+document.addEventListener('click', (e) => { if (e.target.closest('[data-modal-close]')) closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+/* ============ THEME (UI preference only — not application data) ============ */
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('sb_theme', t); } catch {}
+  syncThemeBtns();
+}
+function syncThemeBtns() {
+  const t = document.documentElement.dataset.theme;
+  $$('.themeBtn').forEach(b => { b.textContent = t === 'light' ? '🌙' : '☀️'; b.title = t === 'light' ? 'Switch to dark' : 'Switch to light'; });
+}
+document.addEventListener('click', e => { if (e.target.closest('.themeBtn')) setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'); });
+(function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem('sb_theme'); } catch {}
+  setTheme(t || 'dark');
+})();
+
+/* ============ SOUND — small Web Audio API oscillator "beeps", no external
+   audio files. Muting is a UI preference persisted in localStorage; every
+   trigger is a real backend event (bet placed, bet settled won/lost, a
+   goal/score change on a match you're watching or hold an open bet on). ==== */
+let SOUND_MUTED = false;
+try { SOUND_MUTED = localStorage.getItem('sb_muted') === '1'; } catch {}
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { audioCtx = null; } }
+  return audioCtx;
+}
+// Browsers start an AudioContext suspended until a real user gesture —
+// resume it on the very first click anywhere on the page.
+document.addEventListener('click', function unlockAudio() { const c = ensureAudio(); if (c && c.state === 'suspended') c.resume(); }, { once: true });
+function syncSoundBtns() {
+  $$('.soundBtn').forEach(b => { b.textContent = SOUND_MUTED ? '🔇' : '🔊'; b.title = SOUND_MUTED ? 'Sound off — click to enable' : 'Sound on — click to mute'; });
+}
+function setSoundMuted(v) {
+  SOUND_MUTED = v;
+  try { localStorage.setItem('sb_muted', v ? '1' : '0'); } catch {}
+  syncSoundBtns();
+}
+document.addEventListener('click', e => { if (e.target.closest('.soundBtn')) setSoundMuted(!SOUND_MUTED); });
+syncSoundBtns();
+function playTone(freqs, dur) {
+  if (SOUND_MUTED) return;
+  const ctx = ensureAudio(); if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume();
+  const t0 = ctx.currentTime;
+  freqs.forEach((f, i) => {
+    const start = t0 + i * 0.09;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f, start);
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(.18, start + .015);
+    g.gain.exponentialRampToValueAtTime(.0001, start + dur);
+    o.connect(g).connect(ctx.destination); o.start(start); o.stop(start + dur + .02);
+  });
+}
+const soundBetPlaced = () => playTone([660, 880], .16);
+const soundWon = () => playTone([523.25, 659.25, 783.99], .22);
+const soundLost = () => playTone([300, 220], .28);
+const soundGoal = () => playTone([784, 988, 1174], .2);
+
+/* ============ SUSPENSION COUNTDOWN TICKER ============
+   Cheap 1s DOM text update on any currently-visible suspended odds button —
+   avoids a full re-render just to count seconds down between the 3s poll ticks. */
+setInterval(() => {
+  $$('[data-suspend-until]').forEach(el => {
+    const until = +el.dataset.suspendUntil;
+    const secs = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    const txt = el.querySelector('.suspend-txt');
+    if (txt) txt.textContent = secs > 0 ? `Suspended · ${secs}s` : 'Suspended · 0s';
+  });
+}, 1000);
 
 /* ============ AUTH ============ */
 $$('#authSeg button').forEach(b => b.onclick = () => {
@@ -507,10 +786,13 @@ $('#verifyBtn').onclick = async () => {
 };
 
 $('#logoutBtn').onclick = () => {
-  TOKEN = null; localStorage.removeItem('sb_token');
-  clearInterval(pollTimer);
+  TOKEN = null; localStorage.removeItem('sb_token'); localStorage.removeItem('sb_slip');
+  clearInterval(pollTimer); clearInterval(chatTimer);
   S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [] };
+  prevBetStatus = {}; prevScoreByMatch = {};
+  chatUnread = 0; chatBooted = false; updateChatBadge();
   $('#app').classList.add('hide'); $('#auth').classList.remove('hide');
+  $('#chatFab').classList.add('hide'); $('#chatPanel').classList.add('hide');
 };
 
 /* ============ NAV ============ */
@@ -518,21 +800,40 @@ const NAV = [
   { g: 'Sports' },
   { id: 'football', t: 'Football', ic: '⚽' }, { id: 'basketball', t: 'Basketball', ic: '🏀' },
   { id: 'tennis', t: 'Tennis', ic: '🎾' }, { id: 'nfl', t: 'NFL', ic: '🏈' },
+  { id: 'sim', t: 'FIFA simulation', ic: '🎮' },
   { g: 'Account' },
   { id: 'wallet', t: 'Wallet', ic: '◈' }, { id: 'bets', t: 'My bets', ic: '▤' },
   { id: 'transactions', t: 'Transactions', ic: '⇄' }, { id: 'activity', t: 'Activity', ic: '◷' },
+  { id: 'profile', t: 'Profile', ic: '☉' },
 ];
 function go(v) { S.view = v; renderNav(); renderRoute(); $('#main').scrollTop = 0; $('#rail').classList.remove('open'); }
 function renderNav() {
   const items = S.user && S.user.isAdmin ? [...NAV, { g: 'Admin' }, { id: 'admin', t: 'Admin dashboard', ic: '🛡' }] : NAV;
   $('#rail').innerHTML = items.map(n => n.g ? `<h4>${n.g}</h4>` :
     `<button class="navb ${S.view === n.id ? 'on' : ''}" data-go="${n.id}"><span style="width:16px">${n.ic}</span>${n.t}</button>`).join('');
-  const tabs = [{ id: 'football', t: 'Sports', ic: '⚽' }, { id: 'bets', t: 'Bets', ic: '▤' }, { id: 'wallet', t: 'Wallet', ic: '◈' }];
-  $('#mtab').innerHTML = tabs.map(t => `<button class="${S.view === t.id ? 'on' : ''}" data-go="${t.id}"><span>${t.ic}</span>${t.t}</button>`).join('');
+  const tabs = [{ id: 'football', t: 'Sports', ic: '⚽' }, { id: 'sim', t: 'FIFA', ic: '🎮' }, { id: 'bets', t: 'Bets', ic: '▤' }, { id: 'wallet', t: 'Wallet', ic: '◈' }];
+  $('#mtab').innerHTML = tabs.map(t => `<button class="${S.view === t.id ? 'on' : ''}" data-go="${t.id}"><span>${t.ic}</span>${t.t}</button>`).join('')
+    // A dedicated "Slip" tab on mobile — the betslip column is hidden below
+    // the 1100px breakpoint (see .layout media query) with no other way to
+    // open it, which made placing a bet on a phone impossible. This opens it
+    // as the same slide-in drawer the CSS already defines for .slipcol.open.
+    + `<button class="slip-tab-btn" id="slipTabBtn"><span>🧾</span>Slip<span id="slipTabCount" class="mtab-badge hide">0</span></button>`;
+  $('#slipTabBtn').onclick = () => $('#slipcol').classList.add('open');
 }
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
-  const o = e.target.closest('.o'); if (o && !o.classList.contains('locked')) return addSel(o.dataset.m, o.dataset.k, o.dataset.s);
+  if (e.target.closest('#slipClose')) { $('#slipcol').classList.remove('open'); return; }
+  const w = e.target.closest('[data-watch]');
+  if (w && !e.target.closest('.o')) { S.view = 'match'; S.watchId = w.dataset.watch; return renderRoute(); }
+  const o = e.target.closest('.o');
+  if (o && !o.classList.contains('locked')) {
+    addSel(o.dataset.m, o.dataset.k, o.dataset.s);
+    // On mobile, jump straight to the slip so adding a selection visibly does
+    // something — otherwise it looks like tapping an odds button "does
+    // nothing" because the slip column is off-screen below 1100px.
+    if (window.innerWidth <= 1100) $('#slipcol').classList.add('open');
+    return;
+  }
   const rm = e.target.closest('[data-rm]'); if (rm) return removeLeg(rm.dataset.rm);
 });
 
@@ -541,10 +842,13 @@ function findMatch(id) { return S.matches.find(m => m.id === id); }
 function oddsBtn(m, mktKey, sel) {
   const mkt = m.markets[mktKey];
   if (mkt.closed) return `<button class="o locked"><span class="k">✓</span><span class="v" style="font-size:11px">Closed</span></button>`;
-  if (m.suspended) return `<button class="o locked"><span class="k">⏸</span><span class="v" style="font-size:11px">Suspended</span></button>`;
+  if (m.suspended) {
+    const secs = Math.max(0, Math.ceil((m.suspendedUntil - Date.now()) / 1000));
+    return `<button class="o locked" data-suspend-until="${m.suspendedUntil}"><span class="k">⏸</span><span class="v suspend-txt" style="font-size:11px">Suspended · ${secs}s</span></button>`;
+  }
   const on = S.slip.some(l => l.matchId === m.id && l.mkt === mktKey && l.selK === sel.k);
   return `<button class="o ${on ? 'on' : ''}" data-m="${m.id}" data-k="${mktKey}" data-s="${sel.k}">
-    <span class="k">${esc(shortSel(sel, m))}</span><span class="v">${sel.o.toFixed(2)}</span></button>`;
+    <span class="k">${esc(shortSel(sel, m))}</span><span class="v">${fmtOdds(sel.o)}</span></button>`;
 }
 function shortSel(sel, m) {
   if (sel.k === '1') return m.sport === 'football' ? '1' : 'Home';
@@ -562,7 +866,7 @@ function matchRow(m, mainMkt) {
     else clock = m.minute + "'";
   }
   const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
-  return `<div class="match ${m.live ? 'live' : ''}">
+  return `<div class="match ${m.live ? 'live' : ''}" data-watch="${m.id}">
     <div>
       <div class="m-teams">
         <span>${esc(m.home)} ${m.live || m.ended ? `<b class="sc">${scoreLine[0]}</b>` : ''}</span>
@@ -600,6 +904,226 @@ function renderRoute() {
   else if (S.view === 'transactions') renderTxs(M);
   else if (S.view === 'activity') renderActivity(M);
   else if (S.view === 'admin') renderAdmin(M);
+  else if (S.view === 'match') renderMatchDetail(M);
+  else if (S.view === 'sim') renderSim(M);
+  else if (S.view === 'profile') renderProfile(M);
+}
+
+/* ============ FIFA SIMULATION ============ */
+async function renderSim(M) {
+  M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture.</p></div><div class="empty">Loading…</div>`;
+  let sims, maxPerUser, mine, queuedMine;
+  try { ({ sims, maxPerUser, mine, queuedMine } = await api('GET', '/api/sims')); }
+  catch (err) { M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  if (S.view !== 'sim') return;
+  const sportBtn = (id, label, ic) => `<button class="btn ${S.simSport === id ? '' : 'ghost'} sm" data-simsport="${id}" style="margin-right:8px">${ic} ${label}</button>`;
+  const atCap = mine >= maxPerUser;
+  M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture. ${mine}/${maxPerUser} running${queuedMine ? ', ' + queuedMine + ' queued' : ''}.</p></div>
+    <div class="card" style="margin-bottom:18px">
+      <h3 style="margin-top:0">Start a new simulation</h3>
+      <div style="margin-bottom:12px">
+        ${sportBtn('football', 'Football', '⚽')}${sportBtn('basketball', 'Basketball', '🏀')}${sportBtn('tennis', 'Tennis', '🎾')}${sportBtn('nfl', 'NFL', '🏈')}
+      </div>
+      ${atCap ? `<div class="note" style="margin-bottom:12px">You're at the ${maxPerUser}-simulation limit — starting another will queue it and it'll kick off automatically once one of your running sims finishes.</div>` : ''}
+      <button class="btn" id="startSimBtn">${atCap ? 'Queue simulation' : 'Kick off'}</button>
+    </div>
+    <h3>Running now (all users)</h3>
+    ${!sims.length ? `<div class="empty">No simulations running — start one above.</div>` :
+      `<div class="grid2">${sims.map(m => `<div class="card sim-card" style="position:relative">
+        <div class="sc-top" data-watch="${m.id}" style="cursor:pointer"><span class="sc-live"><i></i> LIVE · ${m.minute}'</span><span style="color:var(--dim)">${esc(m.realSport || m.sport)}</span></div>
+        <div class="sc-teams" data-watch="${m.id}" style="cursor:pointer">${esc(m.home)} ${m.score[0]} – ${m.score[1]} ${esc(m.away)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+          ${m.simOwner === S.user.id ? `<span class="tag open">yours</span>` : '<span></span>'}
+          ${m.simOwner === S.user.id ? `<button class="btn ghost sm" data-abandon="${m.id}" style="width:auto">Abandon</button>` : ''}
+        </div>
+      </div>`).join('')}</div>`}`;
+  S.simSport = S.simSport || 'football';
+  $$('[data-simsport]').forEach(b => b.onclick = () => { S.simSport = b.dataset.simsport; renderSim(M); });
+  const startBtn = $('#startSimBtn');
+  if (startBtn) startBtn.onclick = async () => {
+    try {
+      const r = await api('POST', '/api/sims/start', { sport: S.simSport || 'football' });
+      if (r.queued) { toast('Queued', r.message || 'Will start automatically when a slot frees up.', 'ok'); renderSim(M); return; }
+      toast('Simulation started', esc(r.match.home) + ' v ' + esc(r.match.away), 'ok');
+      S.view = 'match'; S.watchId = r.match.id; renderRoute();
+    } catch (err) { toast('Could not start simulation', err.message, 'bad'); }
+  };
+  $$('[data-abandon]').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('Abandon this simulation now? Any open bets on it will be settled immediately at the current score.')) return;
+    try { await api('POST', `/api/sims/${b.dataset.abandon}/abandon`, {}); toast('Simulation abandoned', 'Open bets on it have been settled.', 'ok'); renderSim(M); await refreshAll(); }
+    catch (err) { toast('Could not abandon', err.message, 'bad'); }
+  });
+}
+
+/* ============ MATCH DETAIL / WATCH ============ */
+/* ---- goal celebration overlay — shared by every match-detail view (both a
+   regular live match and a FIFA sim open into the exact same renderMatchDetail
+   below, so one implementation covers both, as called out explicitly). Reads
+   the match's own most-recent event (m.events[0]) and its timestamp — no
+   client-side timers needed, the CSS animation itself fades out over ~2.6s. ---- */
+const CONFETTI_COLORS = ['#FFD166', '#00E5D6', '#FF2E9A', '#FF4D6D', '#8C7AE6', '#3CE29B', '#FFFFFF', '#F2A93C'];
+function celebrationHtml(m) {
+  const lastEv = (m.events || [])[0];
+  if (!lastEv) return '';
+  const age = Date.now() - lastEv.t;
+  if ((lastEv.kind === 'goal' || lastEv.kind === 'score') && age < 2600) {
+    const team = lastEv.side === 1 ? m.away : m.home;
+    const bits = Array.from({ length: 36 }, (_, i) => {
+      const w = 4 + Math.round(Math.random() * 5), h = 8 + Math.round(Math.random() * 9);
+      const color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+      return `<i style="--i:${i};--h:${color};width:${w}px;height:${h}px"></i>`;
+    }).join('');
+    return `<div class="goalburst">
+      <div class="goalring"><i></i><i></i><i></i></div>
+      <div class="confetti">${bits}</div>
+      <div class="goaltext"><span>${m.sport === 'football' ? 'GOAL!' : 'SCORE!'}</span><small>${esc(team)}</small></div>
+    </div>`;
+  }
+  if ((lastEv.kind === 'half' || lastEv.kind === 'full') && age < 2100) {
+    const kind = lastEv.kind === 'half' ? 'ht' : 'ft';
+    const scoreDisp = (m.sport === 'tennis' ? m.sets : m.score).join(' – ');
+    return `<div class="goalburst bannerlite">
+      <div class="goaltext ${kind}"><span>${kind === 'ht' ? 'HALF-TIME' : 'FULL-TIME'}</span><small>${esc(scoreDisp)}</small></div>
+    </div>`;
+  }
+  return '';
+}
+function isCelebratingNow(m) {
+  const lastEv = (m.events || [])[0];
+  if (!lastEv) return false;
+  const age = Date.now() - lastEv.t;
+  return ((lastEv.kind === 'goal' || lastEv.kind === 'score') && age < 2600) || ((lastEv.kind === 'half' || lastEv.kind === 'full') && age < 2100);
+}
+function celebratedSide(m) {
+  const lastEv = (m.events || [])[0];
+  if (!lastEv || !(lastEv.kind === 'goal' || lastEv.kind === 'score') || Date.now() - lastEv.t >= 2600) return null;
+  return lastEv.side;
+}
+function field3dClass(sport) { return sport === 'basketball' ? 'basketball' : sport === 'tennis' ? 'tennis' : sport === 'nfl' ? 'nfl' : ''; }
+
+/* ---- derived match-stats panel (item 2). Built only from what the engine
+   actually pushes into m.events (kind + side) — no fabricated numbers. Each
+   sport only pushes 1-2 distinct event kinds, so this stays intentionally
+   simple: a per-kind home/away count plus a momentum split. ---- */
+const STAT_KIND_LABEL = { goal: 'Goals', game: 'Games won', set: 'Sets won', score: 'Scoring plays' };
+function matchStatsRows(m) {
+  const byKind = {};
+  (m.events || []).forEach((e) => {
+    if (e.side !== 0 && e.side !== 1) return;
+    byKind[e.kind] = byKind[e.kind] || [0, 0];
+    byKind[e.kind][e.side]++;
+  });
+  return Object.entries(byKind).map(([k, [h, a]]) => [STAT_KIND_LABEL[k] || k, h, a]);
+}
+function statsPanelHtml(m) {
+  const rows = matchStatsRows(m);
+  const homePct = Math.max(4, Math.min(96, 100 - (m.momentum ?? 50)));
+  return `<div class="statgrid">
+    <span class="lbl">Momentum</span>
+    <div class="statbar"><i class="h" style="width:${homePct}%"></i><i class="a" style="width:${100 - homePct}%"></i></div>
+    ${rows.length ? rows.map(([label, h, a]) => `<span class="h">${h}</span><span class="mid">${esc(label)}</span><span class="a">${a}</span>`).join('')
+      : `<span class="lbl">${(m.events || []).length} event${(m.events || []).length === 1 ? '' : 's'} recorded so far — not enough detail yet for a fuller breakdown</span>`}
+  </div>`;
+}
+
+/* ---- venue / fixture-preview blurb (item 4) — flavor text only, no real
+   data behind it: a deterministic "home ground" string per team. ---- */
+const KNOWN_VENUES = {
+  'Real Madrid': 'Santiago Bernabéu', 'Barcelona': 'Camp Nou', 'Atlético Madrid': 'Cívitas Metropolitano',
+  'Man City': 'Etihad Stadium', 'Manchester City': 'Etihad Stadium', 'Man United': 'Old Trafford',
+  'Liverpool': 'Anfield', 'Arsenal': 'Emirates Stadium', 'Chelsea': 'Stamford Bridge', 'Tottenham': 'Tottenham Hotspur Stadium',
+  'Bayern Munich': 'Allianz Arena', 'Borussia Dortmund': 'Signal Iduna Park',
+  'Paris Saint-Germain': 'Parc des Princes', 'PSG': 'Parc des Princes',
+  'Inter': 'San Siro', 'Milan': 'San Siro', 'Juventus': 'Allianz Stadium', 'Napoli': 'Stadio Diego Armando Maradona',
+};
+function venueFor(team) { return KNOWN_VENUES[team] || (team + ' Stadium'); }
+
+/* ---- league standings (item 3) — highlights the two teams currently playing. ---- */
+function standingsTableHtml(table, home, away) {
+  if (!table.length) return `<div class="empty" style="padding:16px">No completed matches in this league yet.</div>`;
+  return `<div class="tablewrap"><table><thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>Pts</th></tr></thead>
+    <tbody>${table.map((r, i) => `<tr style="${r.team === home || r.team === away ? 'background:var(--accent-soft)' : ''}">
+      <td class="num">${i + 1}</td><td>${esc(r.team)}</td><td class="num">${r.played}</td><td class="num">${r.w}</td>
+      <td class="num">${r.d}</td><td class="num">${r.l}</td><td class="num">${r.gf}</td><td class="num">${r.ga}</td><td class="num"><b>${r.pts}</b></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+let mdTab = 'timeline';
+async function renderMatchDetail(M) {
+  M.innerHTML = `<div class="page-h"><h2>Match</h2></div><div class="empty">Loading…</div>`;
+  let m;
+  try { ({ match: m } = await api('GET', '/api/matches/' + S.watchId)); }
+  catch (err) { M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  if (S.view !== 'match' || S.watchId !== m.id) return; // navigated away while fetching
+  m.suspended = m.suspendedUntil && Date.now() < m.suspendedUntil;
+  let standingsTable = [];
+  try { ({ table: standingsTable } = await api('GET', '/api/standings?sport=' + encodeURIComponent(m.sport) + '&league=' + encodeURIComponent(m.league))); } catch {}
+  if (S.view !== 'match' || S.watchId !== m.id) return; // navigated away while fetching standings
+  let clock = '';
+  if (m.live) {
+    if (m.sport === 'football') clock = m.minute + "'";
+    else if (m.sport === 'tennis') clock = 'Set ' + (m.sets[0] + m.sets[1] + 1) + ' · ' + m.games.join('–');
+    else clock = m.minute + "'";
+  }
+  const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
+  const events = (m.events || []).slice(0, 15);
+  const isMySim = m.sim && m.simOwner === S.user.id && !m.ended;
+  const cel = isCelebratingNow(m);
+  const scoredSide = celebratedSide(m);
+  const ballPct = Math.max(6, Math.min(94, m.momentum ?? 50));
+  const homePct = Math.max(4, Math.min(96, 100 - (m.momentum ?? 50)));
+  M.innerHTML = `<div class="page-h">
+      <div><button class="btn ghost sm" data-go="${esc(m.sim ? 'sim' : m.sport)}">← Back to ${m.sim ? 'FIFA simulation' : 'board'}</button></div>
+      ${isMySim ? `<button class="btn ghost sm" id="abandonSimBtn">Abandon simulation</button>` : ''}
+    </div>
+    <div class="pitch ${cel ? 'celebrating' : ''} ${m.suspended ? 'suspending' : ''}">
+      <div class="sim-head"><span>${esc(m.league)}${m.verified ? ' · ✓ Verified' : ''}</span>
+        <span class="live-pill">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? '<i></i> LIVE' : 'Upcoming')}</span></div>
+      ${celebrationHtml(m)}
+      <div class="score-line">
+        <div class="score-team ${scoredSide === 0 ? 'scored' : ''}"><b class="tm">${esc(m.home)}</b></div>
+        <div class="score-box">${m.live || m.ended ? scoreLine.join(' – ') : 'v'}</div>
+        <div class="score-team r ${scoredSide === 1 ? 'scored' : ''}"><b class="tm">${esc(m.away)}</b></div>
+      </div>
+      <div class="m-meta" style="margin-top:10px;justify-content:center">${m.live ? `<span class="clock">${clock}</span>` : (m.ended ? 'Finished' : new Date(m.start).toLocaleString())}${m.suspended ? ' · Suspended' : ''}</div>
+      ${m.live || m.ended ? `<div class="fieldwrap">
+        <div class="momentum-bar"><i class="h" style="width:${homePct}%"></i><i class="a" style="width:${100 - homePct}%"></i></div>
+        <div class="field3d ${field3dClass(m.sport)}">
+          <div class="fieldstripes"></div>
+          <div class="box left"></div><div class="box right"></div>
+          <div class="halfway"></div><div class="centercirc"></div>
+          <div class="ball" style="left:${m.ended ? 50 : ballPct}%"></div>
+        </div>
+        <div class="momlabels"><span>${esc(m.home)} territory</span><span>${esc(m.away)} territory</span></div>
+      </div>` : ''}
+    </div>
+    ${!m.live && !m.ended ? `<div class="card" style="margin-bottom:18px">
+      <h3 style="margin-top:0">About this fixture</h3>
+      <div class="kv"><span>Venue</span><b>${esc(venueFor(m.home))}</b></div>
+      <div class="kv"><span>Kickoff</span><b>${new Date(m.start).toLocaleString()}</b></div>
+      <div class="kv"><span>Competition</span><b>${esc(m.league)}</b></div>
+    </div>` : ''}
+    <div class="card" style="margin-bottom:18px">
+      <h3 style="margin-top:0">${esc(m.league)} standings</h3>
+      ${standingsTableHtml(standingsTable, m.home, m.away)}
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="tabs" id="mdTabs" style="margin-bottom:0">
+        <button data-t="timeline" class="${mdTab === 'timeline' ? 'on' : ''}">Timeline</button>
+        <button data-t="stats" class="${mdTab === 'stats' ? 'on' : ''}">Stats</button>
+      </div>
+      ${mdTab === 'stats' ? statsPanelHtml(m) :
+        (events.length ? `<div class="ev-feed" style="margin-top:12px">${events.map(e => `<div class="ev"><span>${esc(e.txt || '')}</span><span>${e.mn}'</span></div>`).join('')}</div>` : `<div class="empty" style="padding:16px">No events yet.</div>`)}
+    </div>
+    ${Object.entries(m.markets).map(([k, mkt]) => `<div class="mkt-block"><h4>${esc(mkt.label)}</h4><div class="odds">${mkt.sel.map(s => oddsBtn(m, k, s)).join('')}</div></div>`).join('')}`;
+  $('#mdTabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { mdTab = b.dataset.t; renderMatchDetail(M); } };
+  const abandonBtn = $('#abandonSimBtn');
+  if (abandonBtn) abandonBtn.onclick = async () => {
+    if (!confirm('Abandon this simulation now? Any open bets on it will be settled immediately at the current score.')) return;
+    try { await api('POST', `/api/sims/${m.id}/abandon`, {}); toast('Simulation abandoned', 'Open bets on it have been settled.', 'ok'); S.view = 'sim'; renderRoute(); await refreshAll(); }
+    catch (err) { toast('Could not abandon', err.message, 'bad'); }
+  };
 }
 
 /* ============ SLIP ============ */
@@ -628,9 +1152,19 @@ function refreshSlipOdds() {
   if (changed) renderSlip();
 }
 function parlayOdds() { return S.slip.reduce((a, l) => a * l.odds, 1); }
+/* Bet-slip persistence is a pure UI convenience (client-side localStorage) —
+   NOT money-authoritative: /api/bets/place always re-validates every leg's
+   odds/availability server-side regardless of what's restored here. */
+function saveSlip() { try { localStorage.setItem('sb_slip', JSON.stringify(S.slip)); } catch {} }
+function restoreSlip() {
+  try { const raw = localStorage.getItem('sb_slip'); if (raw) S.slip = JSON.parse(raw) || []; } catch { S.slip = []; }
+}
 function renderSlip() {
+  saveSlip();
   const n = S.slip.length;
   $('#slipCount').textContent = n ? `(${n})` : '';
+  const badge = $('#slipTabCount');
+  if (badge) { badge.textContent = n; badge.classList.toggle('hide', !n); }
   const B = $('#slipBody'), F = $('#slipFoot');
   if (!n) { B.innerHTML = `<div class="empty" style="padding:30px 10px">Tap any price to add a selection.</div>`; F.innerHTML = ''; return; }
   const blocked = S.slip.some(l => l.gone);
@@ -638,7 +1172,7 @@ function renderSlip() {
     <div class="leg">
       <div class="leg-top">
         <div><div class="leg-sel">${esc(l.selName)}</div><div class="leg-mkt">${esc(l.mktLabel)}</div><div class="leg-match">${esc(l.matchName)}</div></div>
-        <div style="text-align:right"><div class="leg-odd">${l.odds.toFixed(2)}</div><button class="leg-x" data-rm="${l.id}">✕</button></div>
+        <div style="text-align:right"><div class="leg-odd">${fmtOdds(l.odds)}</div><button class="leg-x" data-rm="${l.id}">✕</button></div>
       </div>
       ${l.gone ? `<div class="leg-err">No longer available — remove to continue</div>` : ''}
       ${S.slipMode === 'single' && !l.gone ? `<div class="stake-row"><input class="inp" type="number" min="0.10" step="0.10" value="${l.stake}" data-stake="${l.id}"></div>` : ''}
@@ -646,7 +1180,7 @@ function renderSlip() {
   if (S.slipMode === 'parlay') {
     const od = parlayOdds();
     F.innerHTML = `<div class="field"><label>Stake (USD)</label><input class="inp" id="parlayStake" type="number" min="0.10" step="0.10" value="10"></div>
-      <div class="sum"><span>${n} legs combined</span><b>${od.toFixed(2)}</b></div>
+      <div class="sum"><span>${n} legs combined</span><b>${fmtOdds(od)}</b></div>
       <div class="sum big"><span>Potential return</span><b id="pRet">${fmt(10 * od)}</b></div>
       <button class="btn" id="placeBtn" ${blocked ? 'disabled' : ''}>${blocked ? 'Remove unavailable legs' : 'Place parlay'}</button>`;
     $('#parlayStake').oninput = () => $('#pRet').textContent = fmt((+$('#parlayStake').value || 0) * parlayOdds());
@@ -676,6 +1210,8 @@ async function placeBets() {
     S.slip = []; renderSlip(); renderRoute();
     await refreshAll();
     toast('Bet placed', 'Track it in My bets.', 'ok');
+    soundBetPlaced();
+    if (window.innerWidth <= 1100) $('#slipcol').classList.remove('open');
   } catch (err) { toast('Could not place bet', err.message, 'bad'); }
 }
 
@@ -687,15 +1223,17 @@ function renderBets(M) {
     <thead><tr><th>Time</th><th>Type</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout</th><th>Status</th></tr></thead>
     <tbody>${rows.map(b => `<tr>
       <td>${new Date(b.placed).toLocaleString()}</td><td>${b.type}</td>
-      <td>${b.legs.map(l => `${esc(l.selName)} <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${l.result ? ` <span class="tag ${l.result}">${l.result}</span>` : ''}`).join('<br>')}</td>
-      <td class="num">${fmt(b.stake)}</td><td class="num">${b.odds.toFixed(2)}</td><td class="num">${fmt(b.payout)}</td>
+      <td>${b.legs.map(l => `${esc(l.selName)} <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${l.result ? ` <span class="tag ${l.result}">${l.result}</span>` : (l.liveHint ? ` <span class="tag live-hint-${l.liveHint}">${l.liveHint === 'winning' ? 'Winning' : (l.liveHint === 'losing' ? 'Losing' : 'Push')}</span>` : '')}`).join('<br>')}</td>
+      <td class="num">${fmt(b.stake)}</td><td class="num">${fmtOdds(b.odds)}</td><td class="num">${fmt(b.payout)}</td>
       <td><span class="tag ${b.status}">${b.status}</span></td></tr>`).join('')}</tbody></table></div>`}`;
 }
 function renderTxs(M) {
-  M.innerHTML = `<div class="page-h"><h2>Transactions</h2></div>
+  const pendingCount = S.txs.filter(t => t.status === 'pending').length;
+  M.innerHTML = `<div class="page-h"><h2>Transactions</h2><p>${pendingCount ? pendingCount + ' pending on chain' : ''}</p></div>
     ${!S.txs.length ? `<div class="empty">No movements yet.</div>` : `<div class="tablewrap"><table>
-    <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
+    <thead><tr><th>Date</th><th>Description</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>${S.txs.map(t => `<tr><td>${new Date(t.t).toLocaleString()}</td><td>${esc(t.label)}</td>
+      <td>${t.status === 'pending' ? `<span class="tag open">Confirming…</span>` : `<span class="tag won">Completed</span>`}</td>
       <td class="num" style="text-align:right;color:${t.amount > 0 ? 'var(--up)' : 'inherit'}">${t.amount > 0 ? '+' : ''}${fmt(t.amount)}</td></tr>`).join('')}</tbody></table></div>`}`;
 }
 function renderActivity(M) {
@@ -703,29 +1241,309 @@ function renderActivity(M) {
     ${!S.activity.length ? `<div class="empty">Nothing yet.</div>` : S.activity.map(a => `<div class="card" style="margin-bottom:8px;padding:12px 16px">
       <div>${esc(a.msg)}</div><div style="font-size:11px;color:var(--dim)">${esc(a.meta || '')} · ${new Date(a.t).toLocaleString()}</div></div>`).join('')}`;
 }
-function renderWallet(M) {
-  M.innerHTML = `<div class="page-h"><h2>Wallet</h2><p>Simulated deposits/withdrawals — instant, no real payment gateway</p></div>
-    <div class="grid2">
-      <div class="card"><h3 style="margin-top:0">Deposit</h3>
-        <div class="field"><label>Amount (USD)</label><input class="inp" id="depAmt" type="number" min="1" value="50"></div>
-        <button class="btn" id="depBtn">Deposit</button></div>
-      <div class="card"><h3 style="margin-top:0">Withdraw</h3>
-        <div class="field"><label>Amount (USD)</label><input class="inp" id="wdAmt" type="number" min="1" value="20"></div>
-        <button class="btn ghost" id="wdBtn">Withdraw</button></div>
-    </div>`;
-  $('#depBtn').onclick = async () => {
-    try { const r = await api('POST', '/api/wallet/deposit', { amount: +$('#depAmt').value || 0 }); S.user.balance = r.balance; renderBalance(); await refreshAll(); toast('Deposited', fmt(+$('#depAmt').value), 'ok'); }
-    catch (err) { toast('Deposit failed', err.message, 'bad'); }
-  };
-  $('#wdBtn').onclick = async () => {
-    try { const r = await api('POST', '/api/wallet/withdraw', { amount: +$('#wdAmt').value || 0 }); S.user.balance = r.balance; renderBalance(); await refreshAll(); toast('Withdrawn', fmt(+$('#wdAmt').value), 'ok'); }
-    catch (err) { toast('Withdrawal failed', err.message, 'bad'); }
+// Same 3-network USDT-style deposit/withdraw presentation as the original
+// prototype (network picker, fake QR, deposit address, fee/min display) —
+// but every action here hits the REAL backend (/api/wallet/deposit|withdraw,
+// already accept a `network` field), crediting/debiting the real balance.
+// There's still no actual blockchain behind it (this is a play-money site),
+// so "depositing" just simulates the on-chain step being confirmed instantly.
+const NETS = {
+  TRC20: { name: 'TRC-20', chain: 'Tron', fee: 1, min: 10, conf: '~1 min', pre: 'T' },
+  ERC20: { name: 'ERC-20', chain: 'Ethereum', fee: 4, min: 20, conf: '~3 min', pre: '0x' },
+  BEP20: { name: 'BEP-20', chain: 'BNB Chain', fee: 0.5, min: 10, conf: '~30 sec', pre: '0x' },
+};
+function qrCells(seed) {
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  let out = '';
+  for (let r = 0; r < 21; r++) for (let c = 0; c < 21; c++) {
+    const finder = (r < 7 && c < 7) || (r < 7 && c > 13) || (r > 13 && c < 7);
+    let on;
+    if (finder) { const rr = r > 13 ? r - 14 : r, cc = c > 13 ? c -14 : c; on = (rr === 0 || rr === 6 || cc === 0 || cc === 6 || (rr > 1 && rr < 5 && cc > 1 && cc < 5)); }
+    else { h = (h * 1103515245 + 12345) & 0x7fffffff; on = (h >> 7) % 100 < 47; }
+    out += `<i style="${on ? '' : 'background:transparent'}"></i>`;
+  }
+  return out;
+}
+function depositAddr(net) {
+  // Deterministic per-user, per-network fake address — stable across
+  // re-renders (seeded off the user id) but obviously not a real wallet.
+  const seed = (S.user.id || '') + net;
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let out = NETS[net].pre;
+  for (let i = 0; i < 33; i++) { h = (h * 1103515245 + 12345) & 0x7fffffff; out += chars[h % chars.length]; }
+  return out;
+}
+// Small reusable VIP stat card — tier + lifetime wagered + next-tier hint.
+// Used on both the wallet page and the profile page.
+function vipCardHtml(u) {
+  const order = ['Bronze', 'Silver', 'Gold', 'Platinum'];
+  const thresholds = [0, 1000, 5000, 20000];
+  const idx = order.indexOf(u.vipTier);
+  const next = idx < order.length - 1 ? thresholds[idx + 1] : null;
+  return `<div class="card">
+    <h3 style="margin-top:0">VIP tier</h3>
+    <div class="kv"><span>Current tier</span><b class="tag open">${esc(u.vipTier)}</b></div>
+    <div class="kv"><span>Lifetime wagered</span><b class="num">${fmt(u.lifetimeWagered)}</b></div>
+    <div class="kv"><span>Withdrawal fee discount</span><b class="num">${Math.round((1 - u.vipFeeMultiplier) * 100)}%</b></div>
+    ${next != null ? `<div class="note" style="margin-top:12px">Wager ${fmt(Math.max(0, next - u.lifetimeWagered))} more to reach ${esc(order[idx + 1])}.</div>` : `<div class="note" style="margin-top:12px">You've reached the top tier — maximum perks unlocked.</div>`}
+  </div>`;
+}
+// Wagering-requirement progress card, shown on the wallet page only while
+// there's a remaining requirement locking withdrawals.
+function wagerCardHtml(u) {
+  if (!u.wageringRemaining || u.wageringRemaining <= 0) return '';
+  const total = u.wageringRequired || 1;
+  const pct = Math.max(0, Math.min(100, ((total - u.wageringRemaining) / total) * 100));
+  return `<div class="card" style="margin-bottom:16px">
+    <h3 style="margin-top:0">Welcome bonus wagering requirement</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin:0 0 10px">Your welcome bonus needs to be wagered ${WAGER_MULT}× before you can withdraw. Every bet you place counts toward this.</p>
+    <div style="height:8px;border-radius:4px;overflow:hidden;background:var(--raised2);margin-bottom:8px">
+      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent),var(--accent2))"></div>
+    </div>
+    <div class="kv"><span>Wagered so far</span><b class="num">${fmt(u.wageringProgress)} / ${fmt(u.wageringRequired)}</b></div>
+    <div class="kv"><span>Remaining to unlock withdrawals</span><b class="num" style="color:var(--down)">${fmt(u.wageringRemaining)}</b></div>
+  </div>`;
+}
+const WAGER_MULT = 3;
+// Welcome-bonus poster (item 7) — reuses the same visual language as the goal
+// celebration (.bonus-card, not .goalburst, since this lives inline on the
+// page rather than as an overlay) and disappears once bonusClaimed flips to
+// true, giving it a "dismissible" feel without needing real dismiss state.
+function bonusCardHtml(u) {
+  if (u.bonusClaimed) return '';
+  return `<div class="bonus-card">
+    <div style="font-size:30px">🎁</div>
+    <h3 style="margin:6px 0 2px">Welcome bonus available!</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin:0 0 4px">Enter your claim code to unlock a one-time credit</p>
+    <div class="amt-big">${fmt(250)}</div>
+    <p style="color:var(--dim);font-size:11.5px;margin:0 0 12px">Wager it ${WAGER_MULT}× before it (or any deposit) can be withdrawn. Demo code: <b style="color:var(--text)">WELCOME250</b></p>
+    <div class="field"><input class="inp" id="bonusCodeInput" placeholder="Claim code" autocomplete="off" style="text-align:center;text-transform:uppercase"></div>
+    <div class="err" id="bonusCodeErr"></div>
+    <button class="btn" id="bonusClaimBtn" style="max-width:260px;margin:0 auto">Claim your bonus</button>
+  </div>`;
+}
+function wirebonusCard(M) {
+  const btn = $('#bonusClaimBtn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    const code = ($('#bonusCodeInput').value || '').trim();
+    $('#bonusCodeErr').textContent = '';
+    try {
+      const { user } = await api('POST', '/api/me/claim-bonus', { code });
+      S.user = user; toast('Bonus claimed', fmt(250) + ' added — wager it ' + WAGER_MULT + 'x before withdrawing.', 'ok');
+      renderBalance(); renderWallet(M);
+    } catch (err) { $('#bonusCodeErr').textContent = err.message; }
   };
 }
+function renderWallet(M) {
+  const net = S.walletNet || 'TRC20'; S.walletNet = net;
+  const N = NETS[net], addr = depositAddr(net);
+  const u = S.user;
+  const pendingCount = S.txs.filter(t => t.status === 'pending').length;
+  M.innerHTML = `<div class="page-h"><h2>Wallet</h2><p>Play-money balance — funded via simulated USDT deposits, real balance, real database</p></div>
+    ${bonusCardHtml(u)}
+    <div class="grid2" style="margin-bottom:16px">
+      <div class="stat"><div class="l">Available balance</div><div class="v">${fmt(S.user.balance)}</div></div>
+      <div class="stat"><div class="l">Staked in open bets</div><div class="v">${fmt(S.bets.filter(b => b.status === 'open').reduce((a, b) => a + b.stake, 0))}</div></div>
+      <div class="stat"><div class="l">Pending on chain</div><div class="v">${pendingCount}</div></div>
+    </div>
+    ${wagerCardHtml(u)}
+    <div class="grid2" style="margin-bottom:16px">${vipCardHtml(u)}
+      <div class="card">
+        <h3 style="margin-top:0">Identity check (KYC)</h3>
+        <div class="kv"><span>Status</span><b style="color:${u.kycVerified ? 'var(--up)' : 'var(--accent)'}">${u.kycVerified ? 'Verified' : 'Pending — required before withdrawal'}</b></div>
+        ${!u.kycVerified ? `<button class="btn ghost" id="walletKycBtn" style="margin-top:12px">Complete identity check</button>` : `<div class="note" style="margin-top:12px">Your identity is verified.</div>`}
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3 style="margin-top:0">Deposit USD</h3><p class="sub" style="color:var(--muted);font-size:12.5px;margin:0 0 14px">Choose a network, then confirm the amount — credited instantly on this play-money site.</p>
+        <div class="netpick" id="netPick">${Object.entries(NETS).map(([k, n]) => `
+          <button data-net="${k}" aria-selected="${k === net}"><div class="n">${n.name}</div><div class="f">${n.chain}</div></button>`).join('')}</div>
+        <div class="qr">${qrCells(addr)}</div>
+        <div class="addr"><code>${addr}</code><button class="btn ghost sm" id="copyAddr" style="width:auto">Copy</button></div>
+        <div class="kv"><span>Minimum deposit</span><b class="num">$${N.min}.00</b></div>
+        <div class="kv"><span>Credited after</span><b>${N.conf} (simulated)</b></div>
+        ${u.limits && u.limits.deposit > 0 ? `<div class="kv"><span>Your 24h deposit limit</span><b class="num">${fmt(u.limits.deposit)}</b></div>` : ''}
+        <div class="note" style="margin:12px 0">No real blockchain is behind this — it's a play-money demo. Enter an amount below; it lands as <b>pending</b> and confirms itself a few seconds later (see Transactions).</div>
+        <div class="field"><label>Amount (USD)</label><input class="inp" id="depAmt" type="number" min="${N.min}" value="${N.min * 5}"></div>
+        <div class="field"><label>Security key <span style="color:var(--dim)">(demo confirmation code — use 000000)</span></label><input class="inp" id="depKey" placeholder="000000" maxlength="6"></div>
+        <button class="btn" id="depBtn">Deposit</button>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Withdraw USD</h3><p class="sub" style="color:var(--muted);font-size:12.5px;margin:0 0 14px">Paid from the same balance, sent as USDT — network fee comes off the top.</p>
+        <div class="kv"><span>Available</span><b class="num">${fmt(S.user.balance)}</b></div>
+        ${u.wageringRemaining > 0 ? `<div class="kv"><span>Wagering remaining</span><b class="num" style="color:var(--down)">${fmt(u.wageringRemaining)}</b></div>` : ''}
+        <div class="kv"><span>Identity check (KYC)</span><b style="color:${u.kycVerified ? 'var(--up)' : 'var(--down)'}">${u.kycVerified ? 'Verified' : 'Required'}</b></div>
+        <button class="btn ghost" id="wdOpenBtn" style="margin-top:14px" ${S.user.balance <= 0 ? 'disabled' : ''}>Withdraw funds</button>
+        ${S.user.balance <= 0 ? `<p style="font-size:12px;color:var(--dim);text-align:center;margin:10px 0 0">Nothing to withdraw yet.</p>` : ''}
+      </div>
+    </div>`;
+  $('#netPick').onclick = e => { const b = e.target.closest('[data-net]'); if (b) { S.walletNet = b.dataset.net; renderWallet(M); } };
+  $('#copyAddr').onclick = () => { navigator.clipboard?.writeText(addr).then(() => toast('Address copied', N.name + ' deposit address', 'ok'), () => toast('Copy failed', 'Select the address and copy manually', 'bad')); };
+  wirebonusCard(M);
+  const kycBtn = $('#walletKycBtn');
+  if (kycBtn) kycBtn.onclick = async () => {
+    try { const { user } = await api('POST', '/api/me/kyc', {}); S.user = user; toast('Identity verified', 'Withdrawals are now enabled (if wagering is also complete).', 'ok'); renderWallet(M); }
+    catch (err) { toast('Verification failed', err.message, 'bad'); }
+  };
+  $('#depBtn').onclick = async () => {
+    const amt = +$('#depAmt').value || 0;
+    const key = $('#depKey').value.trim();
+    if (amt < N.min) return toast('Deposit failed', `Minimum deposit on ${N.name} is $${N.min}.00`, 'bad');
+    try {
+      const r = await api('POST', '/api/wallet/deposit', { amount: amt, network: net, securityKey: key });
+      await refreshAll();
+      toast('Deposit pending', (r.message || 'Confirming on the network…') + ' Track it on Transactions.', 'ok');
+      renderWallet(M);
+    } catch (err) { toast('Deposit failed', err.message, 'bad'); }
+  };
+  $('#wdOpenBtn').onclick = () => openWithdraw(M);
+}
+// Withdraw modal (item 7) — network select, destination address, fee (with
+// VIP discount already computed server-side/client-side same as before),
+// wagering/KYC blockers shown inline, security key, confirm. Replaces the old
+// inline withdraw card with the same shape the reference prototype's
+// openWithdraw() modal used.
+function openWithdraw(M) {
+  const u = S.user;
+  const net0 = S.walletNet || 'TRC20';
+  const wagerLeft = u.wageringRemaining || 0;
+  const blocked = wagerLeft > 0 || !u.kycVerified;
+  const s = modal(`<h3>Withdraw USD</h3><p style="color:var(--muted);font-size:12.5px;margin:0 0 14px">Double-check the address — this cannot be reversed.</p>
+    ${wagerLeft > 0 ? `<div class="note" style="margin-bottom:14px;border-left-color:var(--down);background:var(--down-soft)">Wagering requirement: ${fmt(wagerLeft)} left to wager before withdrawal unlocks.</div>`
+      : (!u.kycVerified ? `<div class="note" style="margin-bottom:14px;border-left-color:var(--down);background:var(--down-soft)">Complete identity verification (KYC) on the Wallet page before withdrawing.</div>`
+      : (u.vipFeeMultiplier < 1 ? `<div class="note" style="margin-bottom:14px">${esc(u.vipTier)} perk: network fee reduced ${Math.round((1 - u.vipFeeMultiplier) * 100)}%.</div>` : ''))}
+    <div class="field"><label>Network</label>
+      <select class="inp" id="wdNet">${Object.entries(NETS).map(([k, n]) => `<option value="${k}" ${k === net0 ? 'selected' : ''}>${n.name} · ${n.chain} · fee $${(n.fee * u.vipFeeMultiplier).toFixed(2)}</option>`).join('')}</select></div>
+    <div class="field"><label>Destination address</label><input class="inp" id="wdAddr" placeholder="${NETS[net0].pre}…" spellcheck="false"></div>
+    <div class="field"><label>Amount (USD)</label><input class="inp" id="wdAmt" type="number" min="${NETS[net0].min}" value="${NETS[net0].min}">
+      <div class="chips" id="wdChips">${[25, 50, 75, 100].map(p => `<button data-p="${p}" type="button">${p}%</button>`).join('')}</div></div>
+    <div class="field"><label>Security key <span style="color:var(--dim)">(demo — use 000000)</span></label><input class="inp" id="wdKey" placeholder="000000" maxlength="6"></div>
+    <div class="kv"><span>Available</span><b class="num">${fmt(u.balance)}</b></div>
+    <div class="err" id="wdErr"></div>
+    <div class="row" style="margin-top:14px"><button class="btn ghost" data-modal-close type="button">Cancel</button>
+      <button class="btn" id="wdGo" ${blocked ? 'disabled' : ''}>Confirm withdrawal</button></div>`);
+  s.querySelector('#wdChips').onclick = (e) => {
+    const b = e.target.closest('[data-p]'); if (!b) return;
+    const n = NETS[s.querySelector('#wdNet').value];
+    const fee = n.fee * u.vipFeeMultiplier;
+    s.querySelector('#wdAmt').value = Math.max(0, (u.balance - fee) * b.dataset.p / 100).toFixed(2);
+  };
+  s.querySelector('#wdGo').onclick = async () => {
+    const net = s.querySelector('#wdNet').value, N = NETS[net];
+    const amt = +s.querySelector('#wdAmt').value || 0;
+    const addrIn = s.querySelector('#wdAddr').value.trim();
+    const key = s.querySelector('#wdKey').value.trim();
+    const err = s.querySelector('#wdErr');
+    err.textContent = '';
+    if (!addrIn) { err.textContent = 'Enter a destination address.'; return; }
+    if (amt < N.min) { err.textContent = `Minimum withdrawal on ${N.name} is $${N.min}.00`; return; }
+    try {
+      const r = await api('POST', '/api/wallet/withdraw', { amount: amt, network: net, securityKey: key });
+      S.user.balance = r.balance; renderBalance(); await refreshAll();
+      toast('Withdrawn', fmt(amt) + ' to ' + addrIn.slice(0, 8) + '…', 'ok');
+      closeModal(); renderWallet(M);
+    } catch (e2) { err.textContent = e2.message; }
+  };
+}
+
+/* ============ PROFILE ============ */
+async function renderProfile(M) {
+  const u = S.user;
+  let history = [];
+  try { ({ history } = await api('GET', '/api/sims/history')); } catch {}
+  if (S.view !== 'profile') return;
+  const initials = (u.name || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  M.innerHTML = `<div class="page-h"><h2>Profile</h2><p>Account details, verification, limits and responsible-gaming controls</p></div>
+    <div class="card" style="margin-bottom:16px;display:flex;gap:16px;align-items:center">
+      <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--neon));display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#04140F;flex-shrink:0">${esc(initials)}</div>
+      <div>
+        <div style="font-weight:700;font-size:16px">${esc(u.name)}</div>
+        <div style="color:var(--muted);font-size:13px">${esc(u.email)} · ${esc(u.country || 'Other')}</div>
+        <div style="color:var(--dim);font-size:12px;margin-top:2px">Member since ${new Date(u.joined).toLocaleDateString()}</div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:16px">
+      ${vipCardHtml(u)}
+      <div class="card">
+        <h3 style="margin-top:0">Identity check (KYC)</h3>
+        <div class="kv"><span>Status</span><b style="color:${u.kycVerified ? 'var(--up)' : 'var(--accent)'}">${u.kycVerified ? 'Verified' : 'Pending'}</b></div>
+        ${!u.kycVerified ? `<button class="btn ghost" id="profKycBtn" style="margin-top:12px">Complete identity check</button>` : `<div class="note" style="margin-top:12px">Verified — withdrawals are unlocked on the KYC front.</div>`}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">Odds format</h3>
+      <div class="seg" style="max-width:280px">
+        <button class="${u.oddsFormat !== 'american' ? 'on' : ''}" id="oddsDecimal">Decimal</button>
+        <button class="${u.oddsFormat === 'american' ? 'on' : ''}" id="oddsAmerican">American</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">Deposit &amp; loss limits</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 12px">Set a 0 value to disable a limit. Enforced server-side on every deposit / bet.</p>
+      <div class="row">
+        <div class="field"><label>24h deposit limit (USD)</label><input class="inp" id="limDeposit" type="number" min="0" value="${u.limits.deposit || 0}"></div>
+        <div class="field"><label>24h loss limit (USD)</label><input class="inp" id="limLoss" type="number" min="0" value="${u.limits.loss || 0}"></div>
+      </div>
+      <button class="btn ghost" id="limSaveBtn" style="width:auto">Save limits</button>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">Take a break (self-exclusion)</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 12px">Locks your account for the chosen period — this is irreversible until it expires, and you'll be signed out immediately.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" data-exclude="24" style="width:auto">1 day</button>
+        <button class="btn ghost" data-exclude="168" style="width:auto">7 days</button>
+        <button class="btn ghost" data-exclude="720" style="width:auto">30 days</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">FIFA simulation history</h3>
+      ${!history.length ? `<div class="empty" style="padding:20px">No simulations played yet.</div>` : `<div class="tablewrap"><table>
+        <thead><tr><th>Date</th><th>Sport</th><th>Match</th><th>Final score</th><th>Result</th></tr></thead>
+        <tbody>${history.map(h => `<tr><td>${new Date(h.t).toLocaleString()}</td><td>${esc(h.sport)}</td><td>${esc(h.home)} v ${esc(h.away)}</td><td class="num">${esc(h.finalScore)}</td><td>${esc(h.result)}</td></tr>`).join('')}</tbody></table></div>`}
+    </div>`;
+
+  const kycBtn = $('#profKycBtn');
+  if (kycBtn) kycBtn.onclick = async () => {
+    try { const { user } = await api('POST', '/api/me/kyc', {}); S.user = user; toast('Identity verified', 'Withdrawals are now enabled (if wagering is also complete).', 'ok'); renderProfile(M); }
+    catch (err) { toast('Verification failed', err.message, 'bad'); }
+  };
+  $('#oddsDecimal').onclick = async () => { try { const { user } = await api('PATCH', '/api/me', { oddsFormat: 'decimal' }); S.user = user; renderProfile(M); renderRoute(); } catch (err) { toast('Could not update', err.message, 'bad'); } };
+  $('#oddsAmerican').onclick = async () => { try { const { user } = await api('PATCH', '/api/me', { oddsFormat: 'american' }); S.user = user; renderProfile(M); renderRoute(); } catch (err) { toast('Could not update', err.message, 'bad'); } };
+  $('#limSaveBtn').onclick = async () => {
+    try {
+      const { user } = await api('PATCH', '/api/me', { limits: { deposit: +$('#limDeposit').value || 0, loss: +$('#limLoss').value || 0 } });
+      S.user = user; toast('Limits saved', 'Deposit and loss limits updated.', 'ok');
+    } catch (err) { toast('Could not save limits', err.message, 'bad'); }
+  };
+  $$('[data-exclude]').forEach(b => b.onclick = async () => {
+    const hours = +b.dataset.exclude;
+    const label = hours === 24 ? '1 day' : (hours === 168 ? '7 days' : '30 days');
+    if (!confirm(`Lock your account for ${label}? This cannot be undone until it expires and you will be signed out immediately.`)) return;
+    try {
+      await api('POST', '/api/me/exclude', { hours });
+      toast('Account locked', `You're locked out for ${label}.`, 'ok');
+      $('#logoutBtn').click();
+    } catch (err) { toast('Could not self-exclude', err.message, 'bad'); }
+  });
+}
+let engineConfigCache = null;
 async function renderAdmin(M) {
   M.innerHTML = `<div class="page-h"><h2>Admin dashboard</h2><p>Every user and every bet, straight from the database</p></div><div id="adminBody">Loading…</div>`;
   try {
-    const [{ platform, users }, { bets }] = await Promise.all([api('GET', '/api/admin/overview'), api('GET', '/api/admin/bets')]);
+    const [{ platform, users }, { bets }, { matches }] = await Promise.all([
+      api('GET', '/api/admin/overview'), api('GET', '/api/admin/bets'), api('GET', '/api/admin/matches'),
+    ]);
+    const statusOrder = { live: 0, upcoming: 1, finished: 2 };
+    const sortedMatches = [...matches].sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.start - b.start);
+    const cfg = engineConfigCache || { margin: 0.055, suspendMs: 4000 };
     $('#adminBody').innerHTML = `
       <div class="grid2" style="margin-bottom:20px">
         <div class="stat"><div class="l">Total staked</div><div class="v">${fmt(platform.staked)}</div></div>
@@ -735,16 +1553,185 @@ async function renderAdmin(M) {
         <div class="stat"><div class="l">Bets placed</div><div class="v">${platform.betsPlaced}</div></div>
         <div class="stat"><div class="l">Users</div><div class="v">${users.length}</div></div>
       </div>
+
+      <h3>Engine &amp; stake config</h3>
+      <div class="card" style="margin-bottom:24px">
+        <div class="row">
+          <div class="field"><label>Margin (0.01–0.12)</label><input class="inp" id="cfgMargin" type="number" step="0.005" min="0.01" max="0.12" value="${cfg.margin}"></div>
+          <div class="field"><label>Suspend ms (1000–10000)</label><input class="inp" id="cfgSuspendMs" type="number" step="100" min="1000" max="10000" value="${cfg.suspendMs}"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Min stake</label><input class="inp" id="cfgMin" type="number" step="0.10" value="0.10"></div>
+          <div class="field"><label>Max odds (single)</label><input class="inp" id="cfgMaxOdds" type="number" step="1" value="350"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Max single payout</label><input class="inp" id="cfgMaxSingle" type="number" step="10" value="1000"></div>
+          <div class="field"><label>Max parlay payout</label><input class="inp" id="cfgMaxParlay" type="number" step="100" value="25000"></div>
+        </div>
+        <button class="btn ghost" id="cfgSaveBtn" style="width:auto">Save config</button>
+      </div>
+
+      <h3>Add fixture</h3>
+      <div class="card" style="margin-bottom:24px">
+        <div class="row">
+          <div class="field"><label>Sport</label><select class="inp" id="fxSport"><option value="football">Football</option><option value="basketball">Basketball</option><option value="tennis">Tennis</option><option value="nfl">NFL</option></select></div>
+          <div class="field"><label>League</label><input class="inp" id="fxLeague" placeholder="Premier League"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Home</label><input class="inp" id="fxHome" placeholder="Home team"></div>
+          <div class="field"><label>Away</label><input class="inp" id="fxAway" placeholder="Away team"></div>
+        </div>
+        <div class="field"><label>Starts in (minutes)</label><input class="inp" id="fxStart" type="number" min="0" value="10"></div>
+        <button class="btn ghost" id="fxAddBtn" style="width:auto">Add fixture</button>
+      </div>
+
+      <h3>All matches — real-time, straight from the server (${matches.length})</h3>
+      <div class="tablewrap" style="margin-bottom:24px"><table><thead><tr><th>Status</th><th>Sport / League</th><th>Match</th><th>Score</th><th>Minute</th><th>Kickoff</th><th>Actions</th></tr></thead>
+      <tbody>${sortedMatches.map(m => `<tr>
+        <td><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}${m.verified ? ' · verified' : ''}</span></td>
+        <td>${esc(m.sport)}<br><span style="color:var(--dim)">${esc(m.league)}</span></td>
+        <td>${esc(m.home)} v ${esc(m.away)}</td>
+        <td class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}</td>
+        <td class="num">${m.live ? m.minute + "'" : (m.ended ? 'FT' : '—')}</td>
+        <td>${new Date(m.start).toLocaleString()}</td>
+        <td>${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
+          <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+            <input class="inp" style="width:44px;padding:6px" type="number" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
+            <input class="inp" style="width:44px;padding:6px" type="number" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
+            <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
+            <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend 5s</button>
+            <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
+          </div>`}</td>
+      </tr>`).join('')}</tbody></table></div>
+
+      <h3>Users</h3>
+      <div class="tablewrap" style="margin-bottom:24px"><table><thead><tr><th>User</th><th>Balance</th><th>Lifetime wagered</th><th>KYC</th><th>Admin</th><th>Locked until</th><th>Actions</th></tr></thead>
+      <tbody>${users.map(u => `<tr>
+        <td>${esc(u.name)}<br><span style="color:var(--dim)">${esc(u.email)}</span></td>
+        <td class="num">${fmt(u.balance)}</td>
+        <td class="num">${fmt(u.lifetime_wagered || 0)}</td>
+        <td>${u.kyc_verified ? '<span class="tag won">Verified</span>' : '<span class="tag">Pending</span>'}</td>
+        <td>${u.is_admin ? '<span class="tag open">Admin</span>' : '—'}</td>
+        <td>${u.lock_until && u.lock_until > Date.now() ? new Date(u.lock_until).toLocaleString() : '—'}</td>
+        <td>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button class="btn ghost sm" data-toggle-admin="${u.id}">${u.is_admin ? 'Revoke admin' : 'Make admin'}</button>
+            <button class="btn ghost sm" data-lock-user="${u.id}">Lock 24h</button>
+          </div>
+        </td>
+      </tr>`).join('')}</tbody></table></div>
+
       <h3>All bets (every user)</h3>
       <div class="tablewrap"><table><thead><tr><th>Time</th><th>User</th><th>Selections</th><th>Stake</th><th>Status</th></tr></thead>
       <tbody>${bets.map(b => `<tr><td>${new Date(b.placed).toLocaleString()}</td><td>${esc(b.userName)}<br><span style="color:var(--dim)">${esc(b.userEmail)}</span></td>
         <td>${b.legs.map(l => esc(l.selName) + ' · ' + esc(l.matchName)).join('<br>')}</td><td class="num">${fmt(b.stake)}</td><td><span class="tag ${b.status}">${b.status}</span></td></tr>`).join('')}</tbody></table></div>`;
+
+    $('#cfgSaveBtn').onclick = async () => {
+      try {
+        const r = await api('POST', '/api/admin/config', {
+          margin: +$('#cfgMargin').value, suspendMs: +$('#cfgSuspendMs').value,
+          stakeLimits: { min: +$('#cfgMin').value, maxOddsSingle: +$('#cfgMaxOdds').value, maxSinglePayout: +$('#cfgMaxSingle').value, maxParlayPayout: +$('#cfgMaxParlay').value },
+        });
+        engineConfigCache = r.config;
+        toast('Config saved', 'Margin/suspend and stake limits updated.', 'ok');
+      } catch (err) { toast('Save failed', err.message, 'bad'); }
+    };
+    $('#fxAddBtn').onclick = async () => {
+      try {
+        await api('POST', '/api/admin/fixtures', {
+          sport: $('#fxSport').value, league: $('#fxLeague').value.trim(),
+          home: $('#fxHome').value.trim(), away: $('#fxAway').value.trim(), startInMinutes: +$('#fxStart').value || 0,
+        });
+        toast('Fixture added', 'It will appear on the board shortly.', 'ok');
+        renderAdmin(M);
+      } catch (err) { toast('Could not add fixture', err.message, 'bad'); }
+    };
+    $$('[data-force-score]').forEach(b => b.onclick = async () => {
+      const id = b.dataset.forceScore;
+      const home = +$(`[data-fs-home="${id}"]`).value || 0, away = +$(`[data-fs-away="${id}"]`).value || 0;
+      try { await api('POST', `/api/admin/matches/${id}/force-score`, { home, away }); toast('Score set', `${home} – ${away}`, 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not set score', err.message, 'bad'); }
+    });
+    $$('[data-suspend-match]').forEach(b => b.onclick = async () => {
+      try { await api('POST', `/api/admin/matches/${b.dataset.suspendMatch}/suspend`, { ms: 5000 }); toast('Match suspended', '5 seconds', 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not suspend', err.message, 'bad'); }
+    });
+    $$('[data-end-match]').forEach(b => b.onclick = async () => {
+      if (!confirm('End this match now and settle all open bets on it?')) return;
+      try { await api('POST', `/api/admin/matches/${b.dataset.endMatch}/end`, {}); toast('Match ended', 'Open bets on it have been settled.', 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not end match', err.message, 'bad'); }
+    });
+    $$('[data-toggle-admin]').forEach(b => b.onclick = async () => {
+      try { await api('POST', `/api/admin/users/${b.dataset.toggleAdmin}/toggle-admin`, {}); renderAdmin(M); }
+      catch (err) { toast('Could not update admin status', err.message, 'bad'); }
+    });
+    $$('[data-lock-user]').forEach(b => b.onclick = async () => {
+      if (!confirm('Lock this user out for 24 hours?')) return;
+      try { await api('POST', `/api/admin/users/${b.dataset.lockUser}/lock`, { hours: 24 }); toast('User locked', '24 hours', 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not lock user', err.message, 'bad'); }
+    });
   } catch (err) { $('#adminBody').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
 }
+
+/* ============ LIVE CHAT ============ */
+let chatTimer = null, chatLastT = 0, chatUnread = 0, chatBooted = false;
+function updateChatBadge() {
+  const b = $('#chatBadge'); if (!b) return;
+  b.textContent = chatUnread > 99 ? '99+' : chatUnread;
+  b.classList.toggle('hide', chatUnread <= 0);
+}
+function isChatOpen() { return !$('#chatPanel').classList.contains('hide'); }
+function renderChat(messages, append) {
+  const B = $('#chatBody');
+  if (!append) B.innerHTML = '';
+  const stuck = B.scrollTop + B.clientHeight >= B.scrollHeight - 30;
+  messages.forEach(m => {
+    const el = document.createElement('div');
+    el.className = 'chat-msg' + (m.mine ? ' mine' : '');
+    el.innerHTML = `<b>${esc(m.mine ? 'You' : m.name)}</b><span class="ct">${new Date(m.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><div>${esc(m.msg)}</div>`;
+    B.appendChild(el);
+    chatLastT = Math.max(chatLastT, m.t);
+  });
+  if (!append || stuck) B.scrollTop = B.scrollHeight;
+}
+async function loadChat() {
+  try {
+    const { messages } = await api('GET', '/api/chat' + (chatLastT ? '?since=' + chatLastT : ''));
+    if (messages.length) renderChat(messages, !!chatLastT);
+    // Only count as "unread" on a real incremental poll after the initial
+    // load (chatBooted), and only while the panel is closed/hidden.
+    if (chatBooted && !isChatOpen() && messages.length) {
+      chatUnread += messages.filter(m => !m.mine).length;
+      updateChatBadge();
+    }
+    chatBooted = true;
+  } catch (err) { /* transient — try again next tick */ }
+}
+$('#chatFab').onclick = () => {
+  $('#chatPanel').classList.toggle('hide');
+  if (isChatOpen()) { $('#chatBody').scrollTop = $('#chatBody').scrollHeight; chatUnread = 0; updateChatBadge(); }
+};
+$('#chatClose').onclick = () => $('#chatPanel').classList.add('hide');
+async function sendChat() {
+  const inp = $('#chatInput');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  inp.value = '';
+  try { await api('POST', '/api/chat', { msg }); await loadChat(); }
+  catch (err) { toast('Message not sent', err.message, 'bad'); }
+}
+$('#chatSend').onclick = sendChat;
+$('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
 /* ============ BOOT / POLLING ============ */
 function renderBalance() { $('#balanceAmt').textContent = fmt(S.user.balance); }
 let pollTimer = null;
+// Client-side memory of each bet's last-known status and each match's last-
+// known score, purely so we can notice the MOMENT something changes between
+// two polls and play the matching sound — the source of truth is still
+// always the server response, never these maps.
+let prevBetStatus = {};
+let prevScoreByMatch = {};
 async function refreshAll() {
   try {
     const [{ user }, matchesF, matchesB, matchesT, matchesN, { bets }, { txs }, { activity }] = await Promise.all([
@@ -754,17 +1741,49 @@ async function refreshAll() {
       api('GET', '/api/bets'), api('GET', '/api/transactions'), api('GET', '/api/activity'),
     ]);
     S.user = user; S.matches = [...matchesF.matches, ...matchesB.matches, ...matchesT.matches, ...matchesN.matches].map(m => ({ ...m, suspended: m.suspendedUntil && Date.now() < m.suspendedUntil }));
+
+    // Sound: a bet transitioning from open -> won/lost between two polls.
+    bets.forEach(b => {
+      const was = prevBetStatus[b.id];
+      if (was === 'open' && b.status === 'won') soundWon();
+      else if (was === 'open' && b.status === 'lost') soundLost();
+      prevBetStatus[b.id] = b.status;
+    });
+
+    // Sound: a goal/score change on a match you're watching or hold an open bet on.
+    const betMatchIds = new Set(bets.filter(b => b.status === 'open').flatMap(b => b.legs.map(l => l.matchId)));
+    const relevantIds = new Set(betMatchIds);
+    if (S.view === 'match' && S.watchId) relevantIds.add(S.watchId);
+    S.matches.forEach(m => {
+      const cur = JSON.stringify(m.score);
+      const prev = prevScoreByMatch[m.id];
+      if (prev !== undefined && prev !== cur && relevantIds.has(m.id)) {
+        soundGoal();
+        // A goal on a match you have money on — clickable toast straight to it.
+        if (betMatchIds.has(m.id)) {
+          toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
+        }
+      }
+      prevScoreByMatch[m.id] = cur;
+    });
+
     S.bets = bets; S.txs = txs; S.activity = activity;
     renderBalance(); refreshSlipOdds();
-    if (['football', 'basketball', 'tennis', 'nfl'].includes(S.view)) renderRoute();
+    if (['football', 'basketball', 'tennis', 'nfl', 'match', 'sim'].includes(S.view)) renderRoute();
   } catch (err) { /* transient poll failure — try again next tick */ }
 }
 async function boot() {
   $('#auth').classList.add('hide'); $('#app').classList.remove('hide');
+  $('#chatFab').classList.remove('hide');
+  restoreSlip();
   await refreshAll();
   renderNav(); go('football'); renderSlip();
   clearInterval(pollTimer);
   pollTimer = setInterval(refreshAll, 3000);
+  chatLastT = 0;
+  await loadChat();
+  clearInterval(chatTimer);
+  chatTimer = setInterval(loadChat, 4000);
 }
 (async function init() {
   if (TOKEN) {

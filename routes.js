@@ -8,17 +8,55 @@ const uid = (p) => p + crypto.randomBytes(6).toString('hex');
 const now = () => Date.now();
 const fmt = (n) => '$' + Number(n).toFixed(2);
 
+// A stake cap keyed to real decimal odds (typically 1.x–10.x here), not the
+// American-style 100/150/350 thresholds an earlier version used — those
+// never matched this app's odds scale, so almost every normal bet fell into
+// the first tier and was capped at a flat $10 regardless of the actual
+// payout ceiling. The cap is now purely payout-based: whatever stake would
+// hit maxSinglePayout at these odds, floored at the minimum stake.
+// `let` (not `const`) so admin config updates (POST /api/admin/config) can
+// replace it in place — its properties are still mutated in place elsewhere
+// (maxStakeForOdds etc. always read off this same object), matching how
+// engine.CONFIG is already mutated rather than reassigned.
 const STAKE_LIMITS = {
   min: 0.10, maxOddsSingle: 350, maxSinglePayout: 1000, maxParlayPayout: 25000,
-  tiers: [{ maxOdds: 100, maxStake: 10 }, { maxOdds: 150, maxStake: 5 }, { maxOdds: 350, maxStake: 1 }],
 };
 function maxStakeForOdds(o) {
-  if (o <= 1) return STAKE_LIMITS.maxSinglePayout;
-  const tier = STAKE_LIMITS.tiers.find((t) => o <= t.maxOdds) || STAKE_LIMITS.tiers[STAKE_LIMITS.tiers.length - 1];
-  return Math.max(STAKE_LIMITS.min, Math.min(tier.maxStake, STAKE_LIMITS.maxSinglePayout / o));
+  return Math.max(STAKE_LIMITS.min, STAKE_LIMITS.maxSinglePayout / o);
 }
 
 function isAdminEmail(em) { return em === 'demo@stakebet.com' || em.includes('admin'); }
+
+// ---------- VIP / loyalty tiers (mirrors the original prototype's vipTier /
+// vipFeeMultiplier, keyed off lifetime_wagered instead of localStorage) ----------
+const VIP_TIERS = ['Bronze', 'Silver', 'Gold', 'Platinum'];
+const VIP_THRESHOLDS = { silver: 1000, gold: 5000, platinum: 20000 };
+const VIP_FEE_MULT = { Bronze: 1, Silver: 0.9, Gold: 0.75, Platinum: 0.5 }; // multiplier applied to the withdrawal network fee
+function vipTierIndex(lifetime) {
+  if (lifetime >= VIP_THRESHOLDS.platinum) return 3;
+  if (lifetime >= VIP_THRESHOLDS.gold) return 2;
+  if (lifetime >= VIP_THRESHOLDS.silver) return 1;
+  return 0;
+}
+function vipTier(lifetime) { return VIP_TIERS[vipTierIndex(lifetime)]; }
+function vipFeeMultiplier(lifetime) { return VIP_FEE_MULT[vipTier(lifetime)]; }
+
+// ---------- demo-only fixed security key ----------
+// This is NOT real security — it's a fixed, publicly-documented passphrase
+// (parity with the original client-only prototype's same fixed-passphrase
+// "confirm with a security key" demo pattern) required on deposit/withdraw
+// just to mirror that extra confirmation step in the UI flow.
+const SECURITY_KEY = '000000';
+
+// ---------- wagering requirement on the welcome bonus ----------
+const WAGERING_MULTIPLIER = 3; // playthrough required = bonus amount * this
+const WELCOME_BONUS_AMOUNT = 250;
+// Demo-only claim code (same spirit as SECURITY_KEY above — publicly
+// documented, not real security). The bonus is no longer auto-credited on
+// verify; a user must claim it with this code via POST /api/me/claim-bonus.
+const BONUS_CLAIM_CODE = 'WELCOME250';
+// Simulated on-chain confirmation delay for a deposit — see /api/wallet/deposit.
+const DEPOSIT_CONFIRM_MS = 8000;
 
 function addTx(userId, type, label, amount, extra) {
   const id = uid('t');
@@ -38,10 +76,17 @@ function creditUser(userId, amount) {
 }
 function getUserRow(id) { return db.prepare('SELECT * FROM users WHERE id = ?').get(id); }
 function publicUser(row) {
+  const lifetime = row.lifetime_wagered || 0;
+  const wageringRequired = row.wagering_required || 0;
+  const wageringProgress = row.wagering_progress || 0;
   return {
     id: row.id, email: row.email, name: row.name, country: row.country, joined: row.joined_at,
     isAdmin: !!row.is_admin, balance: row.balance, oddsFormat: row.odds_format,
     limits: { deposit: row.deposit_limit, loss: row.loss_limit },
+    lifetimeWagered: lifetime, vipTier: vipTier(lifetime), vipFeeMultiplier: vipFeeMultiplier(lifetime),
+    wageringRequired, wageringProgress, wageringRemaining: Math.max(0, wageringRequired - wageringProgress),
+    kycVerified: !!row.kyc_verified, lockUntil: row.lock_until || null,
+    bonusClaimed: !!row.bonus_claimed,
   };
 }
 
@@ -76,9 +121,34 @@ function legResult(leg, m) {
     if (Math.abs(adj) < 0.01) return 'void';
     return adj > 0 ? 'won' : 'lost';
   }
+  if (leg.mkt === 'HT') {
+    if (!m.htScore) return 'void';
+    const [hh, ha] = m.htScore;
+    const w = hh > ha ? '1' : (hh < ha ? '2' : 'X');
+    return leg.selK === w ? 'won' : 'lost';
+  }
+  if (leg.mkt === 'WBTTS') {
+    const win = h > a ? 'H' : (h < a ? 'A' : 'D');
+    const btts = h > 0 && a > 0;
+    return (leg.selK[0] === win && (leg.selK[1] === 'Y') === btts) ? 'won' : 'lost';
+  }
   return 'void';
 }
+function simResultText(m) {
+  const [h, a] = m.sport === 'tennis' ? m.sets : m.score;
+  if (h > a) return m.home + ' won';
+  if (a > h) return m.away + ' won';
+  return 'Draw';
+}
+function recordSimHistory(m) {
+  if (!m.sim || !m.simOwner) return;
+  const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
+  db.prepare('INSERT INTO sim_history (id, user_id, sport, home, away, final_score, result, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(uid('sh'), m.simOwner, m.sport, m.home, m.away, scoreLine.join('–'), simResultText(m), now());
+}
 function settleMatch(m) {
+  recordSimHistory(m);
+  if (m.sim) promoteSimQueue(); // a slot may have just freed up for someone queued
   const openBets = db.prepare("SELECT * FROM bets WHERE status = 'open'").all();
   for (const row of openBets) {
     const legs = JSON.parse(row.legs);
@@ -107,7 +177,24 @@ function settleMatch(m) {
     addActivity(row.user_id, status === 'void' ? 'Bet voided, stake returned' : 'Bet won', (status === 'void' ? '+' : '+') + fmt(returned));
   }
 }
-function startEngine() { engine.startEngine(settleMatch); }
+// ---------- live chat (real users, with light ambient bot flavor) ----------
+const CHAT_BOTS = ['Marco_88', 'BetKing', 'Luna_G', 'RedArmy', 'Dana_V', 'Sipho22', 'TifoTom', 'Nadia.K', 'PunterPaul', 'Yuki_88', 'Carlos_R', 'StreakSteph', 'Big_Marv', 'Priya.B'];
+const CHAT_LINES = ['anyone else on this match?', 'odds moving fast tonight', "cmon!!", 'that was close', "book's quick to reprice here", 'parlay or nothing 😤', 'nice line on the double chance', 'watching a few games at once lol', "who's backing the away side?", 'handicap looking good rn', 'this line barely moved', 'solid value on BTTS', 'in-play markets are wild today', 'just cashed a small one 🙌'];
+let lastChatAt = 0;
+function insertChat(userId, name, msg) {
+  db.prepare('INSERT INTO chat (id, user_id, name, msg, created_at) VALUES (?,?,?,?,?)').run(uid('c'), userId, name, msg, now());
+}
+function startChatAmbience() {
+  setInterval(() => {
+    if (now() - lastChatAt < 60000) return; // quiet down while real users are talking
+    if (Math.random() > 0.5) return; // keep it modest
+    const name = CHAT_BOTS[Math.floor(Math.random() * CHAT_BOTS.length)];
+    const line = CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)];
+    insertChat(null, name, line);
+  }, 15000);
+}
+
+function startEngine() { engine.startEngine(settleMatch); startChatAmbience(); }
 
 // ---------- auth middleware ----------
 function requireAuth(req) {
@@ -163,8 +250,9 @@ route('POST', '/api/auth/verify', (req, res, p, body) => {
   const isAdmin = isAdminEmail(em) ? 1 : 0;
   db.prepare(`INSERT INTO users (id, email, name, password_hash, country, joined_at, verified, is_admin, balance)
     VALUES (?,?,?,?,?,?,1,?,0)`).run(id, em, pending.payload.name, pending.payload.passwordHash, pending.payload.country, now(), isAdmin);
-  addTx(id, 'deposit', 'Welcome bonus credit', 250, {});
-  creditUser(id, 250);
+  // No more auto-credited welcome bonus — the $250 now sits unclaimed until
+  // the user redeems BONUS_CLAIM_CODE via POST /api/me/claim-bonus (which is
+  // also where wagering_required actually gets set, at claim time).
   addActivity(id, 'Account created and verified');
   const user = getUserRow(id);
   json(res, 200, { token: signToken({ uid: id }), user: publicUser(user) });
@@ -188,9 +276,133 @@ route('PATCH', '/api/me', (req, res, p, body) => {
   json(res, 200, { user: publicUser(getUserRow(req.user.id)) });
 }, { auth: true });
 
+// KYC — simulated instant approval, no real document upload (demo).
+route('POST', '/api/me/kyc', (req, res) => {
+  db.prepare('UPDATE users SET kyc_verified = 1 WHERE id = ?').run(req.user.id);
+  addActivity(req.user.id, 'Identity check completed');
+  json(res, 200, { user: publicUser(getUserRow(req.user.id)) });
+}, { auth: true });
+
+// Welcome bonus — claimed, not auto-credited (see signup/verify above). Fixed
+// demo code, one-time only per account.
+route('POST', '/api/me/claim-bonus', (req, res, p, body) => {
+  const user = getUserRow(req.user.id);
+  if (user.bonus_claimed) return json(res, 400, { error: 'You have already claimed your welcome bonus.' });
+  const code = String(body?.code || '').trim().toUpperCase();
+  if (code !== BONUS_CLAIM_CODE) return json(res, 400, { error: 'That code is not valid.' });
+  creditUser(user.id, WELCOME_BONUS_AMOUNT);
+  addTx(user.id, 'bonus', 'Welcome bonus claimed', WELCOME_BONUS_AMOUNT);
+  db.prepare('UPDATE users SET wagering_required = wagering_required + ?, bonus_claimed = 1 WHERE id = ?')
+    .run(WELCOME_BONUS_AMOUNT * WAGERING_MULTIPLIER, user.id);
+  addActivity(user.id, 'Claimed welcome bonus', fmt(WELCOME_BONUS_AMOUNT));
+  json(res, 200, { user: publicUser(getUserRow(user.id)) });
+}, { auth: true });
+
+// Self-exclusion ("take a break") — irreversible until it expires. Reuses the
+// existing lock_until column/login-time check; this is the first thing that
+// actually SETS it for a user acting on their own behalf.
+route('POST', '/api/me/exclude', (req, res, p, body) => {
+  const hours = +body?.hours || 0;
+  if (hours <= 0) return json(res, 400, { error: 'Choose a valid duration.' });
+  const until = now() + hours * 3600000;
+  db.prepare('UPDATE users SET lock_until = ? WHERE id = ?').run(until, req.user.id);
+  addActivity(req.user.id, 'Self-excluded for ' + hours + ' hours');
+  json(res, 200, { lockUntil: until });
+}, { auth: true });
+
 route('GET', '/api/matches', (req, res, p, body, query) => {
-  const list = engine.listMatches({ sport: query.sport || undefined, ended: false });
+  // User-started FIFA simulations are excluded from the regular sport board —
+  // they live in their own section (see /api/sims) so they don't clutter the
+  // real schedule, even though they run through the exact same engine.
+  const list = engine.listMatches({ sport: query.sport || undefined, ended: false }).filter((m) => !m.sim);
   json(res, 200, { matches: list });
+}, { auth: true });
+
+// ---------- FIFA simulation queue ----------
+// In-memory only — a restart clears it. That's an accepted trade-off here:
+// a `sim_queue` table would survive restarts, but nothing else about a sim
+// (or the live/match engine state in general) survives one either, so a
+// queued *request* not surviving one is no worse than the running sims
+// themselves not surviving it. FIFO per nothing-in-particular (global order),
+// promoted per-user as that user's own running-sim count drops below the cap.
+const simQueue = []; // { id, userId, sport, createdAt }
+function promoteSimQueue() {
+  for (let i = 0; i < simQueue.length; i++) {
+    const q = simQueue[i];
+    const running = engine.listSims().filter((m) => m.simOwner === q.userId).length;
+    if (running < engine.MAX_SIMS_PER_USER) {
+      simQueue.splice(i, 1);
+      engine.startSim(q.userId, q.sport);
+      i--; // a slot may have freed for more than one queued entry this round
+    }
+  }
+}
+
+// League standings — computed purely from ENDED matches already in the
+// `matches` table, no new schema. Football/soccer-style scoring (3/1/0); every
+// other sport just counts wins/losses (1/0), since there's no "draw" concept
+// worth modeling for basketball/tennis/NFL here.
+route('GET', '/api/standings', (req, res, p, body, query) => {
+  const sport = String(query.sport || '');
+  const league = String(query.league || '');
+  if (!sport || !league) return json(res, 400, { error: 'sport and league are required.' });
+  const rows = db.prepare('SELECT data FROM matches WHERE sport = ? AND league = ? AND ended = 1').all(sport, league);
+  const soccerStyle = sport === 'football';
+  const table = {};
+  const ensure = (t) => (table[t] = table[t] || { team: t, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
+  for (const row of rows) {
+    const m = JSON.parse(row.data);
+    const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
+    if (!Array.isArray(scoreLine) || scoreLine.length !== 2) continue;
+    const [h, a] = scoreLine;
+    const home = ensure(m.home), away = ensure(m.away);
+    home.played++; away.played++;
+    home.gf += h; home.ga += a; away.gf += a; away.ga += h;
+    if (h > a) { home.w++; away.l++; home.pts += soccerStyle ? 3 : 1; }
+    else if (h < a) { away.w++; home.l++; away.pts += soccerStyle ? 3 : 1; }
+    else { home.d++; away.d++; if (soccerStyle) { home.pts += 1; away.pts += 1; } }
+  }
+  const list = Object.values(table).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf);
+  json(res, 200, { sport, league, table: list });
+}, { auth: true });
+
+route('GET', '/api/sims', (req, res) => {
+  json(res, 200, {
+    sims: engine.listSims(), maxPerUser: engine.MAX_SIMS_PER_USER,
+    mine: engine.listSims().filter((m) => m.simOwner === req.user.id).length,
+    queuedMine: simQueue.filter((q) => q.userId === req.user.id).length,
+  });
+}, { auth: true });
+
+route('POST', '/api/sims/start', (req, res, p, body) => {
+  const sport = String(body?.sport || 'football');
+  const r = engine.startSim(req.user.id, sport);
+  if (r.error) {
+    // Specifically the "at the cap" error — queue instead of rejecting.
+    if (r.error.includes('at once')) {
+      simQueue.push({ id: uid('q'), userId: req.user.id, sport, createdAt: now() });
+      const position = simQueue.filter((q) => q.userId === req.user.id).length;
+      return json(res, 200, { queued: true, position, message: 'Queued — will start automatically when a slot frees up.' });
+    }
+    return json(res, 400, { error: r.error });
+  }
+  json(res, 200, { match: r.match });
+}, { auth: true });
+
+route('POST', '/api/sims/:id/abandon', (req, res, p) => {
+  const m = engine.getMatch(p.id);
+  if (!m || !m.sim) return json(res, 404, { error: 'Simulation not found.' });
+  if (m.simOwner !== req.user.id && !req.user.is_admin) return json(res, 403, { error: 'You can only abandon your own simulation.' });
+  if (m.ended) return json(res, 400, { error: 'This simulation has already ended.' });
+  m.ended = true; m.live = false;
+  engine.saveMatch(m);
+  settleMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true });
+
+route('GET', '/api/sims/history', (req, res) => {
+  const rows = db.prepare('SELECT * FROM sim_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.user.id);
+  json(res, 200, { history: rows.map((r) => ({ id: r.id, sport: r.sport, home: r.home, away: r.away, finalScore: r.final_score, result: r.result, t: r.created_at })) });
 }, { auth: true });
 
 route('GET', '/api/matches/:id', (req, res, p) => {
@@ -217,6 +429,19 @@ function validateLeg(input) {
   };
 }
 
+// 24h net loss = money staked minus money returned (payout/refund) in the
+// trailing 24h — used as a stand-in for "loss" since there's no clean betting
+// session boundary to measure a real per-session loss against.
+function net24hLoss(userId) {
+  const since = now() - 86400000;
+  const { staked } = db.prepare("SELECT COALESCE(SUM(-amount),0) AS staked FROM transactions WHERE user_id = ? AND type = 'bet' AND created_at >= ?").get(userId, since);
+  const { returned } = db.prepare("SELECT COALESCE(SUM(amount),0) AS returned FROM transactions WHERE user_id = ? AND type IN ('payout','refund') AND created_at >= ?").get(userId, since);
+  return staked - returned;
+}
+function bumpWagering(userId, amount) {
+  db.prepare('UPDATE users SET lifetime_wagered = lifetime_wagered + ?, wagering_progress = wagering_progress + ? WHERE id = ?').run(amount, amount, userId);
+}
+
 route('POST', '/api/bets/place', (req, res, p, body) => {
   const user = getUserRow(req.user.id);
   const legsInput = Array.isArray(body.legs) ? body.legs : [];
@@ -231,6 +456,9 @@ route('POST', '/api/bets/place', (req, res, p, body) => {
     const stake = +body.stake || 0;
     if (stake < STAKE_LIMITS.min) return json(res, 400, { error: 'Minimum stake is ' + fmt(STAKE_LIMITS.min) });
     if (stake > user.balance) return json(res, 400, { error: 'Not enough balance.' });
+    if (user.loss_limit > 0 && net24hLoss(user.id) + stake > user.loss_limit) {
+      return json(res, 400, { error: 'This would exceed your 24h loss limit of ' + fmt(user.loss_limit) + '.' });
+    }
     const od = resolved.reduce((a, l) => a * l.odds, 1);
     const payout = +(stake * od).toFixed(2);
     if (payout > STAKE_LIMITS.maxParlayPayout) return json(res, 400, { error: `Payout would exceed ${fmt(STAKE_LIMITS.maxParlayPayout)}. Lower the stake.` });
@@ -240,6 +468,7 @@ route('POST', '/api/bets/place', (req, res, p, body) => {
     db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(stake, user.id);
     addTx(user.id, 'bet', 'Parlay (' + resolved.length + ' legs)', -stake);
     bumpPlatform('staked', stake); bumpPlatform('betsPlaced', 1);
+    bumpWagering(user.id, stake);
     addActivity(user.id, 'Placed ' + resolved.length + '-leg parlay at ' + od.toFixed(2), fmt(stake));
     return json(res, 200, { placed: 1, balance: getUserRow(user.id).balance });
   }
@@ -256,6 +485,9 @@ route('POST', '/api/bets/place', (req, res, p, body) => {
     stakes.push(st); totalStake += st;
   }
   if (totalStake > user.balance) return json(res, 400, { error: 'Not enough balance.' });
+  if (user.loss_limit > 0 && net24hLoss(user.id) + totalStake > user.loss_limit) {
+    return json(res, 400, { error: 'This would exceed your 24h loss limit of ' + fmt(user.loss_limit) + '.' });
+  }
   for (let i = 0; i < resolved.length; i++) {
     const leg = resolved[i], st = stakes[i];
     const id = uid('b');
@@ -265,13 +497,29 @@ route('POST', '/api/bets/place', (req, res, p, body) => {
     bumpPlatform('staked', st); bumpPlatform('betsPlaced', 1);
   }
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(totalStake, user.id);
+  bumpWagering(user.id, totalStake);
   addActivity(user.id, 'Placed ' + resolved.length + ' single bet' + (resolved.length > 1 ? 's' : ''), fmt(totalStake));
   json(res, 200, { placed: resolved.length, balance: getUserRow(user.id).balance });
 }, { auth: true });
 
+// Maps a leg's live win/lose preview using the exact same legResult() logic
+// real settlement uses, against the match's current in-progress score — this
+// is a UI preview only (`liveHint`), never written to `leg.result`, which
+// stays reserved for real, final settlement.
+function attachLiveHints(bet) {
+  if (bet.status !== 'open') return bet;
+  for (const leg of bet.legs) {
+    if (leg.result) continue;
+    const m = engine.getMatch(leg.matchId);
+    if (!m || !m.live) continue;
+    const preview = legResult(leg, m);
+    leg.liveHint = preview === 'won' ? 'winning' : (preview === 'lost' ? 'losing' : 'push');
+  }
+  return bet;
+}
 route('GET', '/api/bets', (req, res) => {
   const rows = db.prepare('SELECT * FROM bets WHERE user_id = ? ORDER BY placed_at DESC LIMIT 200').all(req.user.id);
-  json(res, 200, { bets: rows.map((r) => ({ id: r.id, type: r.type, stake: r.stake, odds: r.odds, payout: r.payout, status: r.status, returned: r.returned, placed: r.placed_at, legs: JSON.parse(r.legs) })) });
+  json(res, 200, { bets: rows.map((r) => attachLiveHints({ id: r.id, type: r.type, stake: r.stake, odds: r.odds, payout: r.payout, status: r.status, returned: r.returned, placed: r.placed_at, legs: JSON.parse(r.legs) })) });
 }, { auth: true });
 
 route('GET', '/api/transactions', (req, res) => {
@@ -284,21 +532,50 @@ route('GET', '/api/activity', (req, res) => {
   json(res, 200, { activity: rows.map((r) => ({ id: r.id, msg: r.msg, meta: r.meta, t: r.created_at })) });
 }, { auth: true });
 
+// Deposit is pending -> confirmed, not instant, mirroring the original
+// prototype's simulated on-chain confirmation delay. The transaction is
+// inserted with status='pending' and the balance is NOT touched yet; a
+// server-side timeout flips it to 'completed' and credits the balance a few
+// seconds later. GET /api/transactions already returns `status`, so the
+// front end can show a "pending"/"confirming…" state in the meantime.
 route('POST', '/api/wallet/deposit', (req, res, p, body) => {
   const amount = +body?.amount || 0;
   if (amount <= 0) return json(res, 400, { error: 'Enter a positive amount.' });
-  creditUser(req.user.id, amount);
-  addTx(req.user.id, 'deposit', 'Deposit via ' + (body.network || 'TRC20'), amount);
-  bumpPlatform('deposited', amount);
-  addActivity(req.user.id, 'Deposited', fmt(amount));
-  json(res, 200, { balance: getUserRow(req.user.id).balance });
+  if (String(body?.securityKey || '') !== SECURITY_KEY) return json(res, 400, { error: 'Incorrect security key.' });
+  const user = getUserRow(req.user.id);
+  if (user.deposit_limit > 0) {
+    const since = now() - 86400000;
+    const { total } = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id = ? AND type = 'deposit' AND created_at >= ?").get(user.id, since);
+    if (total + amount > user.deposit_limit) {
+      return json(res, 400, { error: `This would exceed your 24h deposit limit of ${fmt(user.deposit_limit)} (already deposited ${fmt(total)} in the last 24h).` });
+    }
+  }
+  const id = uid('t');
+  db.prepare('INSERT INTO transactions (id, user_id, type, label, amount, status, created_at, extra) VALUES (?,?,?,?,?,?,?,?)')
+    .run(id, req.user.id, 'deposit', 'Deposit via ' + (body.network || 'TRC20'), amount, 'pending', now(), null);
+  addActivity(req.user.id, 'Deposit detected — awaiting confirmation', fmt(amount));
+  setTimeout(() => {
+    const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
+    if (!tx || tx.status !== 'pending') return; // already resolved (or gone) — nothing to do
+    db.prepare("UPDATE transactions SET status = 'completed' WHERE id = ?").run(id);
+    creditUser(req.user.id, amount);
+    bumpPlatform('deposited', amount);
+    addActivity(req.user.id, 'Deposit confirmed', fmt(amount));
+  }, DEPOSIT_CONFIRM_MS);
+  json(res, 200, { pending: true, txId: id, etaMs: DEPOSIT_CONFIRM_MS, message: 'Deposit detected — confirming on the network.' });
 }, { auth: true });
 
 route('POST', '/api/wallet/withdraw', (req, res, p, body) => {
   const amount = +body?.amount || 0;
   const user = getUserRow(req.user.id);
   if (amount <= 0) return json(res, 400, { error: 'Enter a positive amount.' });
+  if (String(body?.securityKey || '') !== SECURITY_KEY) return json(res, 400, { error: 'Incorrect security key.' });
   if (amount > user.balance) return json(res, 400, { error: 'Not enough balance.' });
+  const wageringRemaining = Math.max(0, (user.wagering_required || 0) - (user.wagering_progress || 0));
+  if (wageringRemaining > 0) {
+    return json(res, 400, { error: `You need to wager ${fmt(wageringRemaining)} more before you can withdraw — this comes from your welcome bonus wagering requirement.` });
+  }
+  if (!user.kyc_verified) return json(res, 400, { error: 'Complete identity verification (KYC) before withdrawing.' });
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, user.id);
   addTx(req.user.id, 'withdraw', 'Withdrawal to ' + (body.network || 'TRC20'), -amount);
   bumpPlatform('withdrawn', amount);
@@ -309,8 +586,29 @@ route('POST', '/api/wallet/withdraw', (req, res, p, body) => {
 route('GET', '/api/admin/overview', (req, res) => {
   const platform = {};
   for (const row of db.prepare('SELECT * FROM platform').all()) platform[row.key] = row.value;
-  const users = db.prepare('SELECT id, email, name, balance, joined_at, is_admin FROM users').all();
+  const users = db.prepare('SELECT id, email, name, balance, joined_at, is_admin, lock_until, lifetime_wagered, kyc_verified FROM users').all();
   json(res, 200, { platform, users });
+}, { auth: true, admin: true });
+
+// Every match the engine knows about — live, upcoming, and finished — with
+// its current score/minute, straight from the same rows the live board
+// reads from. This is what lets the admin dashboard show the real,
+// server-authoritative result of every match instead of only a bet list.
+route('GET', '/api/admin/matches', (req, res, p, body, query) => {
+  const sql = query.sport
+    ? "SELECT * FROM matches WHERE sport = ? ORDER BY start DESC LIMIT 500"
+    : "SELECT * FROM matches ORDER BY start DESC LIMIT 500";
+  const rows = query.sport ? db.prepare(sql).all(query.sport) : db.prepare(sql).all();
+  const matches = rows.map((r) => {
+    const m = JSON.parse(r.data);
+    return {
+      id: m.id, sport: m.sport, league: m.league, home: m.home, away: m.away,
+      score: m.score, minute: m.minute, live: m.live, ended: m.ended,
+      verified: !!m.verified, start: m.start,
+      status: m.ended ? 'finished' : (m.live ? 'live' : 'upcoming'),
+    };
+  });
+  json(res, 200, { matches });
 }, { auth: true, admin: true });
 
 route('GET', '/api/admin/bets', (req, res) => {
@@ -321,8 +619,96 @@ route('GET', '/api/admin/bets', (req, res) => {
 route('POST', '/api/admin/config', (req, res, p, body) => {
   if (body.margin != null) engine.CONFIG.margin = Math.max(0.01, Math.min(0.12, +body.margin));
   if (body.suspendMs != null) engine.CONFIG.suspendMs = Math.max(1000, Math.min(10000, +body.suspendMs));
-  json(res, 200, { config: engine.CONFIG });
+  if (body.stakeLimits) {
+    const sl = body.stakeLimits;
+    if (sl.min != null) STAKE_LIMITS.min = Math.max(0.01, +sl.min);
+    if (sl.maxOddsSingle != null) STAKE_LIMITS.maxOddsSingle = Math.max(1.01, +sl.maxOddsSingle);
+    if (sl.maxSinglePayout != null) STAKE_LIMITS.maxSinglePayout = Math.max(1, +sl.maxSinglePayout);
+    if (sl.maxParlayPayout != null) STAKE_LIMITS.maxParlayPayout = Math.max(1, +sl.maxParlayPayout);
+  }
+  json(res, 200, { config: engine.CONFIG, stakeLimits: STAKE_LIMITS });
 }, { auth: true, admin: true });
+
+// ---------- admin CRUD: matches ----------
+route('POST', '/api/admin/matches/:id/force-score', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  const home = +body?.home, away = +body?.away;
+  if (!Number.isFinite(home) || !Number.isFinite(away) || home < 0 || away < 0) return json(res, 400, { error: 'home/away must be non-negative numbers.' });
+  m.score = [home, away];
+  if (m.sport === 'tennis') m.sets = [home, away];
+  engine.priceMatch(m);
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+route('POST', '/api/admin/matches/:id/end', (req, res, p) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  if (m.ended) return json(res, 400, { error: 'Match already ended.' });
+  m.ended = true; m.live = false;
+  engine.saveMatch(m);
+  settleMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+route('POST', '/api/admin/matches/:id/suspend', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  const ms = +body?.ms || 5000;
+  engine.suspendMatch(m, Math.max(1000, Math.min(60000, ms)));
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+route('POST', '/api/admin/fixtures', (req, res, p, body) => {
+  const { sport, league, home, away, startInMinutes } = body || {};
+  if (!sport || !league || !home || !away) return json(res, 400, { error: 'sport, league, home and away are required.' });
+  const m = engine.makeMatch(sport, league, String(home), String(away), false);
+  m.start = now() + (Math.max(0, +startInMinutes || 0)) * 60000;
+  m.verified = true; // admin-added fixtures show the verified badge
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+// ---------- admin CRUD: users ----------
+route('POST', '/api/admin/users/:id/toggle-admin', (req, res, p) => {
+  const target = getUserRow(p.id);
+  if (!target) return json(res, 404, { error: 'User not found.' });
+  if (target.is_admin && target.id === req.user.id) {
+    const { c } = db.prepare('SELECT COUNT(*) AS c FROM users WHERE is_admin = 1').get();
+    if (c <= 1) return json(res, 400, { error: 'You are the only admin — cannot revoke your own admin status.' });
+  }
+  db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(target.is_admin ? 0 : 1, target.id);
+  json(res, 200, { user: publicUser(getUserRow(target.id)) });
+}, { auth: true, admin: true });
+
+route('POST', '/api/admin/users/:id/lock', (req, res, p, body) => {
+  const target = getUserRow(p.id);
+  if (!target) return json(res, 404, { error: 'User not found.' });
+  const hours = +body?.hours || 0;
+  if (hours <= 0) return json(res, 400, { error: 'Choose a valid duration.' });
+  const until = now() + hours * 3600000;
+  db.prepare('UPDATE users SET lock_until = ? WHERE id = ?').run(until, target.id);
+  json(res, 200, { user: publicUser(getUserRow(target.id)) });
+}, { auth: true, admin: true });
+
+route('GET', '/api/chat', (req, res, p, body, query) => {
+  const since = +query.since || 0;
+  const rows = since
+    ? db.prepare('SELECT * FROM chat WHERE created_at > ? ORDER BY created_at ASC LIMIT 100').all(since)
+    : db.prepare('SELECT * FROM chat ORDER BY created_at DESC LIMIT 100').all().reverse();
+  json(res, 200, { messages: rows.map((r) => ({ id: r.id, name: r.name, msg: r.msg, t: r.created_at, mine: r.user_id === req.user.id })) });
+}, { auth: true });
+
+route('POST', '/api/chat', (req, res, p, body) => {
+  const msg = String(body?.msg || '').trim();
+  if (!msg) return json(res, 400, { error: 'Message cannot be empty.' });
+  if (msg.length > 180) return json(res, 400, { error: 'Message is too long (180 characters max).' });
+  insertChat(req.user.id, req.user.name, msg);
+  lastChatAt = now();
+  json(res, 200, { ok: true });
+}, { auth: true });
 
 function json(res, status, obj) {
   const buf = Buffer.from(JSON.stringify(obj));

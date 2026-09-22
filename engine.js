@@ -104,12 +104,29 @@ function normCdf(z) {
   return z > 0 ? 1 - p : p;
 }
 const CONFIG = { margin: 0.055, suspendMs: 4000 };
+// For a genuine partition — mutually exclusive outcomes whose true
+// probabilities already sum to 1 (1X2, Over/Under, BTTS yes/no, Asian
+// handicap, half-time result) — the vig is distributed across them together:
+// divide each by the group's total (itself ~1) so the whole set still prices
+// a "book" that sums to slightly over 100%.
 function priceFromProbs(ps) {
   const tot = ps.reduce((a, b) => a + b, 0);
   return ps.map((p) => {
     const q = Math.max(p / tot, 0.004);
     return Math.max(1.01, +((1 / q) * (1 - CONFIG.margin)).toFixed(2));
   });
+}
+// Double chance's three selections (1X/12/X2) are NOT mutually exclusive —
+// "Home or Draw" and "Home or Away" can both be true at once (home wins), so
+// their probabilities don't sum to 1 (they sum to 2× the true 1X2 total).
+// Feeding them through priceFromProbs's group-normalize logic divided each
+// one by that ~2 instead of by its own ~1, which roughly DOUBLED every
+// double-chance price — a supposedly ~75%-likely outcome was coming back
+// priced near evens/2.50 instead of the ~1.25–1.35 a real book would quote.
+// Each selection is priced independently off its own real probability instead.
+function priceIndependent(p) {
+  const q = Math.max(p, 0.004);
+  return Math.max(1.01, +((1 / q) * (1 - CONFIG.margin)).toFixed(2));
 }
 function lockOdds(...vals) { return vals.some((v) => v <= 1.02); }
 
@@ -156,7 +173,7 @@ function priceMatch(m) {
     const [h, d, a] = priceFromProbs([pH, pD, pA]);
     const [o, u] = priceFromProbs([pOv, 1 - pOv]);
     const [y, n] = priceFromProbs([pBtts, 1 - pBtts]);
-    const [dc1x, dc12, dcx2] = priceFromProbs([pH + pD, pH + pA, pD + pA]);
+    const dc1x = priceIndependent(pH + pD), dc12 = priceIndependent(pH + pA), dcx2 = priceIndependent(pD + pA);
     const [h1, d1, a1] = priceFromProbs([pH1, pD1, pA1]);
     const [wHY, wHN, wDY, wDN, wAY, wAN] = priceFromProbs([pHY, pHN, pDY, pDN, pAY, pAN]);
     const [ahH, ahA] = priceFromProbs([pAHhome, pAHaway]);
@@ -254,7 +271,17 @@ function stepMinute(m) {
   const strBias = (m.str[0] - m.str[1]) / (Math.abs(m.str[0]) + Math.abs(m.str[1]) + 0.01);
   const scoreBias = Math.sign((m.score[0] || 0) - (m.score[1] || 0));
   m.momentum = Math.max(6, Math.min(94, m.momentum + rnd(-6, 6) + strBias * 3 + scoreBias * 2));
-  if (m.sport === 'football') {
+  // Once an admin has manually set this match's score (force-score), it's
+  // meant to be the real, authoritative result — not a value the random
+  // simulation then keeps adding surprise goals on top of a few seconds
+  // later. `adminLocked` (set in routes.js's force-score handler) freezes
+  // just the scoring while leaving the clock/momentum/suspense running
+  // normally, so the match doesn't look frozen — the score the admin typed
+  // in is what stays on the board and in the database until they either set
+  // it again or end the match.
+  if (m.adminLocked) {
+    // no random scoring this tick
+  } else if (m.sport === 'football') {
     if (Math.random() < 0.035) {
       const side = Math.random() < m.str[0] / (m.str[0] + m.str[1]) ? 0 : 1;
       m.score[side]++; m.lastScorer = side; suspendMatch(m, CONFIG.suspendMs);
@@ -281,7 +308,7 @@ function stepMinute(m) {
     // celebration overlay looks for kind 'half'/'full' on the most recent
     // event to show the HT/FT banner instead of a goal burst.
     pushEvent(m, { kind: 'full', txt: 'Full-time — ' + m.score.join('–') });
-    m.ended = true; m.live = false; return true;
+    m.ended = true; m.live = false; m.endedAt = now(); return true;
   }
   return false;
 }
@@ -316,6 +343,24 @@ function listMatches({ sport, live, ended } = {}) {
   if (ended !== undefined) { sql += ' AND ended = ?'; args.push(ended ? 1 : 0); }
   sql += ' ORDER BY start ASC';
   return db.prepare(sql).all(...args).map(rowToMatch);
+}
+// A just-finished match used to vanish from the board on the very next 3s
+// poll — one live match ending and another taking its place felt like a
+// jump-cut, and there was no moment to actually see the final score. This
+// gives it a brief "Full time" grace window on the board before it drops
+// off (see routes.js's /api/matches, which calls this alongside the normal
+// not-yet-ended list). Bounded with LIMIT + ORDER BY start DESC so a long-
+// running deployment's full match history is never scanned — kickoff-time
+// ordering is a good enough proxy for "recently finished" since matches in
+// this sped-up simulation end shortly after they start.
+const ENDED_GRACE_MS = 5000;
+function listRecentlyEnded(sport) {
+  let sql = 'SELECT * FROM matches WHERE ended = 1';
+  const args = [];
+  if (sport) { sql += ' AND sport = ?'; args.push(sport); }
+  sql += ' ORDER BY start DESC LIMIT 20';
+  return db.prepare(sql).all(...args).map(rowToMatch)
+    .filter((m) => m.endedAt && now() - m.endedAt < ENDED_GRACE_MS);
 }
 
 // ---------- user-started FIFA-style simulations ----------
@@ -453,6 +498,19 @@ function seedIfEmpty() {
     }
   }
 }
+// Every league maybeKickoff()/topUpFixtures() know to manage — normally just
+// TEAMS's fixed list, but an admin can add a fixture (POST /api/admin/fixtures)
+// under a brand-new league name that isn't in TEAMS at all. Without this,
+// maybeKickoff()'s loop (which only ever visited Object.keys(TEAMS[sport]))
+// silently never looked at that league, so a custom-league fixture's
+// scheduled kickoff time would pass and it would just sit there forever,
+// never actually going live no matter how long you waited.
+function leaguesFor(sportId) {
+  const known = Object.keys(TEAMS[sportId] || {});
+  const rows = db.prepare("SELECT DISTINCT league FROM matches WHERE sport = ? AND ended = 0").all(sportId);
+  const extra = rows.map((r) => r.league).filter((lg) => !known.includes(lg));
+  return known.concat(extra);
+}
 // Keeps every sport/league stocked with upcoming fixtures. Without this, a
 // short-clocked sport (basketball/NFL run their whole "match minute" clock
 // in a couple of real minutes) would burn through its one-time seeded slate
@@ -476,14 +534,22 @@ function topUpFixtures() {
 // live" rather than a handful of matches starved across five competitions).
 const MAX_LIVE_PER_LEAGUE = 2;
 function kickOffFresh(m) {
-  m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50; m.score = [0, 0];
-  if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
+  m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50;
+  // A pregame score an admin deliberately set (adminLocked — see routes.js's
+  // force-score handler) used to get silently wiped back to 0-0 the instant
+  // the fixture kicked off, since this unconditionally reset the score. Now
+  // it survives kickoff exactly as set; stepMinute()'s own adminLocked check
+  // then keeps the random simulation from adding further goals on top of it.
+  if (!m.adminLocked) {
+    m.score = [0, 0];
+    if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
+  }
   priceMatch(m);
   saveMatch(m);
 }
 function maybeKickoff() {
   for (const s of SPORTS) {
-    for (const lg of Object.keys(TEAMS[s.id])) {
+    for (const lg of leaguesFor(s.id)) {
       const upcomingAll = () => listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
       // A verified fixture (admin-added, or one of the curated real-world
       // ones) carries an explicit, deliberately-chosen kickoff time, so it
@@ -557,7 +623,7 @@ function startEngine(onSettle) {
 
 module.exports = {
   TEAMS, SPORTS, priceMatch, makeMatch, isSuspended, capFor,
-  saveMatch, getMatch, listMatches, startEngine, CONFIG,
+  saveMatch, getMatch, listMatches, listRecentlyEnded, startEngine, CONFIG,
   startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
   BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds, MAX_LIVE_PER_LEAGUE,
 };

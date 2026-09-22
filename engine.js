@@ -261,7 +261,12 @@ function pushEvent(m, partial) {
 }
 function stepMinute(m) {
   m.minute++;
-  if (m.sport === 'football' && !m.htScore && m.minute === 45 + (m.addedHT || 0)) {
+  // >= rather than === so this can't be permanently skipped if an admin
+  // lowers addedHT (via the added-time endpoint) to a value at or below the
+  // stoppage minute already reached — with a strict equality check, the
+  // exact minute this fires on would already be behind us and half-time
+  // would never trigger at all for that match.
+  if (m.sport === 'football' && !m.htScore && m.minute >= 45 + (m.addedHT || 0)) {
     m.htScore = [...m.score];
     // Half-time marker event — purely additive to the event feed (never read
     // by settlement), used client-side to trigger the half-time banner in the

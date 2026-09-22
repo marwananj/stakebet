@@ -1978,18 +1978,10 @@ let pollTimer = null;
 // always the server response, never these maps.
 let prevBetStatus = {};
 let prevScoreByMatch = {};
-// Tracks every match id we've ever seen so a freshly topped-up fixture (the
-// engine keeps every league stocked — see topUpFixtures()/maybeKickoff() in
-// engine.js) can be announced instead of just silently appearing on the
-// board next refresh. `null` means "not primed yet" — the very first poll
-// after boot just records the current board without announcing anything
-// (otherwise every fixture already on the board at login would fire a
-// "new fixture" toast, which is noise, not news).
-let knownMatchIds = null;
 // Guards against two refreshAll() calls overlapping — e.g. the regular 3s
 // poll firing while a bet-placement or another manual refresh is still
 // mid-flight. Without this, both calls read the same prevBetStatus/
-// prevScoreByMatch/knownMatchIds "before" state before either writes it
+// prevScoreByMatch "before" state before either writes it
 // back, so a single goal or bet settlement could fire its sound/toast
 // twice. Any call made while one is already running just piggybacks on
 // that in-flight promise instead of starting a second, overlapping fetch.
@@ -2024,27 +2016,6 @@ async function doRefreshAll() {
       else if (was === 'open' && b.status === 'lost') soundLost();
       prevBetStatus[b.id] = b.status;
     });
-
-    // Top-up notification: a fixture the engine just added to the board
-    // (or just kicked off) that we haven't seen before.
-    const nowIds = new Set(S.matches.map(m => m.id));
-    if (knownMatchIds === null) {
-      knownMatchIds = nowIds;
-    } else {
-      const fresh = S.matches.filter(m => !knownMatchIds.has(m.id));
-      // Each new fixture gets its own clickable toast straight to that match
-      // (capped at 3 at once so a big top-up burst — e.g. right after boot —
-      // doesn't paper the screen in toasts); anything beyond that collapses
-      // into one non-clickable summary, since there's no single match to
-      // send a click to.
-      fresh.slice(0, 3).forEach(m => {
-        toast('New fixture added', esc(m.home) + ' v ' + esc(m.away) + ' · ' + esc(m.league), 'ok', { type: 'match', id: m.id });
-      });
-      if (fresh.length > 3) {
-        toast('More fixtures added', (fresh.length - 3) + ' more new matches just joined the board.', 'ok');
-      }
-      knownMatchIds = nowIds;
-    }
 
     // Sound + toast: a goal/score change on a match you're watching or hold
     // an open bet on. Also a lighter, sound-free toast for a goal on the

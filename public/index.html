@@ -652,6 +652,13 @@ const BEIRUT_TZ = 'Asia/Beirut';
 function fmtBeirut(ts) {
   return new Date(ts).toLocaleString('en-GB', { timeZone: BEIRUT_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' Beirut';
 }
+// Date-only variant (no time-of-day) for things like "member since" — every
+// other timestamp in the app goes through fmtBeirut() above so a bet placed,
+// a transaction, or a lock expiry all read in the same Lebanon time instead
+// of whatever timezone the viewer's own browser/OS happens to be set to.
+function fmtBeirutDate(ts) {
+  return new Date(ts).toLocaleDateString('en-GB', { timeZone: BEIRUT_TZ, day: '2-digit', month: '2-digit', year: 'numeric' });
+}
 // Shared odds formatter — every place a price is displayed goes through this
 // instead of calling .toFixed(2) directly, so the decimal/american odds
 // format preference (S.user.oddsFormat, set from the profile page) applies
@@ -1350,11 +1357,16 @@ async function placeBets() {
     } else {
       await api('POST', '/api/bets/place', { mode: 'single', legs: S.slip.map(l => ({ matchId: l.matchId, mkt: l.mkt, selK: l.selK, stake: +l.stake || 0 })) });
     }
+    // Confirm immediately — the bet is already committed server-side at this
+    // point, so there's no reason to make the person wait on a full 9-request
+    // board refresh (matches/bets/txs/activity/sims) just to see "Bet placed".
+    // That wait was the visible "lag" after placing a bet. Sync the rest of
+    // the UI (balance, bet history, board) in the background afterward.
     S.slip = []; renderSlip(); renderRoute();
-    await refreshAll();
     toast('Bet placed', 'Track it in My bets.', 'ok');
     soundBetPlaced();
     if (window.innerWidth <= 1100) $('#slipcol').classList.remove('open');
+    refreshAll();
   } catch (err) { toast('Could not place bet', err.message, 'bad'); }
 }
 
@@ -1380,7 +1392,7 @@ function renderBets(M) {
     ${!rows.length ? `<div class="empty">No bets yet.</div>` : `<div class="tablewrap"><table>
     <thead><tr><th>Time</th><th>Type</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout</th><th>Status</th></tr></thead>
     <tbody>${rows.map(b => `<tr>
-      <td data-label="Time">${new Date(b.placed).toLocaleString()}</td><td data-label="Type">${b.type}</td>
+      <td data-label="Time">${fmtBeirut(b.placed)}</td><td data-label="Type">${b.type}</td>
       <td data-label="Selections">${b.legs.map(l => `<span ${findMatch(l.matchId) && findMatch(l.matchId).live ? `data-watch="${l.matchId}" style="cursor:pointer;text-decoration:underline dotted"` : ''}>${esc(l.selName)}</span> <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${legTrackingHtml(l)}`).join('<br>')}</td>
       <td data-label="Stake" class="num">${fmt(b.stake)}</td><td data-label="Odds" class="num">${fmtOdds(b.odds)}</td><td data-label="Payout" class="num">${fmt(b.payout)}</td>
       <td data-label="Status"><span class="tag ${b.status}">${b.status}</span></td></tr>`).join('')}</tbody></table></div>`}`;
@@ -1391,14 +1403,14 @@ function renderTxs(M) {
   M.innerHTML = `<div class="page-h"><h2>Transactions</h2><p>${pendingCount ? pendingCount + ' pending on chain' : ''}</p></div>
     ${!S.txs.length ? `<div class="empty">No movements yet.</div>` : `<div class="tablewrap"><table>
     <thead><tr><th>Date</th><th>Description</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead>
-    <tbody>${S.txs.map(t => `<tr><td data-label="Date">${new Date(t.t).toLocaleString()}</td><td data-label="Description">${esc(t.label)}</td>
+    <tbody>${S.txs.map(t => `<tr><td data-label="Date">${fmtBeirut(t.t)}</td><td data-label="Description">${esc(t.label)}</td>
       <td data-label="Status">${t.status === 'pending' ? `<span class="tag open">Confirming…</span>` : `<span class="tag won">Completed</span>`}</td>
       <td data-label="Amount" class="num" style="text-align:right;color:${t.amount > 0 ? 'var(--up)' : 'inherit'}">${t.amount > 0 ? '+' : ''}${fmt(t.amount)}</td></tr>`).join('')}</tbody></table></div>`}`;
 }
 function renderActivity(M) {
   M.innerHTML = `<div class="page-h"><h2>Activity</h2></div>
     ${!S.activity.length ? `<div class="empty">Nothing yet.</div>` : S.activity.map(a => `<div class="card" style="margin-bottom:8px;padding:12px 16px">
-      <div>${esc(a.msg)}</div><div style="font-size:11px;color:var(--dim)">${esc(a.meta || '')} · ${new Date(a.t).toLocaleString()}</div></div>`).join('')}`;
+      <div>${esc(a.msg)}</div><div style="font-size:11px;color:var(--dim)">${esc(a.meta || '')} · ${fmtBeirut(a.t)}</div></div>`).join('')}`;
 }
 // Same 3-network USDT-style deposit/withdraw presentation as the original
 // prototype (network picker, fake QR, deposit address, fee/min display) —
@@ -1621,7 +1633,7 @@ async function renderProfile(M) {
       <div>
         <div style="font-weight:700;font-size:16px">${esc(u.name)}</div>
         <div style="color:var(--muted);font-size:13px">${esc(u.email)} · ${esc(u.country || 'Other')}</div>
-        <div style="color:var(--dim);font-size:12px;margin-top:2px">Member since ${new Date(u.joined).toLocaleDateString()}</div>
+        <div style="color:var(--dim);font-size:12px;margin-top:2px">Member since ${fmtBeirutDate(u.joined)}</div>
       </div>
     </div>
 
@@ -1666,7 +1678,7 @@ async function renderProfile(M) {
       <h3 style="margin-top:0">FIFA simulation history</h3>
       ${!history.length ? `<div class="empty" style="padding:20px">No simulations played yet.</div>` : `<div class="tablewrap"><table>
         <thead><tr><th>Date</th><th>Sport</th><th>Match</th><th>Final score</th><th>Result</th></tr></thead>
-        <tbody>${history.map(h => `<tr><td data-label="Date">${new Date(h.t).toLocaleString()}</td><td data-label="Sport">${esc(h.sport)}</td><td data-label="Match">${esc(h.home)} v ${esc(h.away)}</td><td data-label="Final score" class="num">${esc(h.finalScore)}</td><td data-label="Result">${esc(h.result)}</td></tr>`).join('')}</tbody></table></div>`}
+        <tbody>${history.map(h => `<tr><td data-label="Date">${fmtBeirut(h.t)}</td><td data-label="Sport">${esc(h.sport)}</td><td data-label="Match">${esc(h.home)} v ${esc(h.away)}</td><td data-label="Final score" class="num">${esc(h.finalScore)}</td><td data-label="Result">${esc(h.result)}</td></tr>`).join('')}</tbody></table></div>`}
     </div>`;
 
   const kycBtn = $('#profKycBtn');
@@ -1704,12 +1716,18 @@ async function renderAdmin(M) {
   const savedScroll = M.scrollTop;
   M.innerHTML = `<div class="page-h"><h2>Admin dashboard</h2><p>Every user and every bet, straight from the database</p></div><div id="adminBody">Loading…</div>`;
   try {
-    const [{ platform, users }, { bets }, { matches }] = await Promise.all([
+    const [{ platform, users }, { bets }, { matches }, cfgResp] = await Promise.all([
       api('GET', '/api/admin/overview'), api('GET', '/api/admin/bets'), api('GET', '/api/admin/matches'),
+      api('GET', '/api/admin/config').catch(() => null),
     ]);
+    if (cfgResp) engineConfigCache = cfgResp;
     const statusOrder = { live: 0, upcoming: 1, finished: 2 };
     const sortedMatches = [...matches].sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.start - b.start);
-    const cfg = engineConfigCache || { margin: 0.055, suspendMs: 4000 };
+    // Reflect the server's actual current engine/stake-limit config — this
+    // used to always show hardcoded placeholder numbers here regardless of
+    // what was really configured (see the new GET /api/admin/config route).
+    const cfg = (engineConfigCache && engineConfigCache.config) || { margin: 0.055, suspendMs: 4000 };
+    const limits = (engineConfigCache && engineConfigCache.stakeLimits) || { min: 0.10, maxOddsSingle: 350, maxSinglePayout: 1000, maxParlayPayout: 25000 };
     $('#adminBody').innerHTML = `
       <div class="grid2" style="margin-bottom:20px">
         <div class="stat"><div class="l">Total staked</div><div class="v">${fmt(platform.staked)}</div></div>
@@ -1727,12 +1745,12 @@ async function renderAdmin(M) {
           <div class="field"><label>Suspend ms (1000–10000)</label><input class="inp" id="cfgSuspendMs" type="number" step="100" min="1000" max="10000" value="${cfg.suspendMs}"></div>
         </div>
         <div class="row">
-          <div class="field"><label>Min stake</label><input class="inp" id="cfgMin" type="number" step="0.10" value="0.10"></div>
-          <div class="field"><label>Max odds (single)</label><input class="inp" id="cfgMaxOdds" type="number" step="1" value="350"></div>
+          <div class="field"><label>Min stake</label><input class="inp" id="cfgMin" type="number" step="0.10" value="${limits.min}"></div>
+          <div class="field"><label>Max odds (single)</label><input class="inp" id="cfgMaxOdds" type="number" step="1" value="${limits.maxOddsSingle}"></div>
         </div>
         <div class="row">
-          <div class="field"><label>Max single payout</label><input class="inp" id="cfgMaxSingle" type="number" step="10" value="1000"></div>
-          <div class="field"><label>Max parlay payout</label><input class="inp" id="cfgMaxParlay" type="number" step="100" value="25000"></div>
+          <div class="field"><label>Max single payout</label><input class="inp" id="cfgMaxSingle" type="number" step="10" value="${limits.maxSinglePayout}"></div>
+          <div class="field"><label>Max parlay payout</label><input class="inp" id="cfgMaxParlay" type="number" step="100" value="${limits.maxParlayPayout}"></div>
         </div>
         <button class="btn ghost" id="cfgSaveBtn" style="width:auto">Save config</button>
       </div>
@@ -1799,7 +1817,7 @@ async function renderAdmin(M) {
         <td data-label="Lifetime wagered" class="num">${fmt(u.lifetime_wagered || 0)}</td>
         <td data-label="KYC">${u.kyc_verified ? '<span class="tag won">Verified</span>' : '<span class="tag">Pending</span>'}</td>
         <td data-label="Admin">${u.is_admin ? '<span class="tag open">Admin</span>' : '—'}</td>
-        <td data-label="Locked until">${u.lock_until && u.lock_until > Date.now() ? new Date(u.lock_until).toLocaleString() : '—'}</td>
+        <td data-label="Locked until">${u.lock_until && u.lock_until > Date.now() ? fmtBeirut(u.lock_until) : '—'}</td>
         <td data-label="Actions">
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn ghost sm" data-toggle-admin="${u.id}">${u.is_admin ? 'Revoke admin' : 'Make admin'}</button>
@@ -1812,7 +1830,7 @@ async function renderAdmin(M) {
       <div class="tablewrap"><table><thead><tr><th>Time</th><th>User</th><th>Balance now</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout / returned</th><th>Status</th></tr></thead>
       <tbody>${bets.map(b => {
         const u = users.find(x => x.email === b.userEmail);
-        return `<tr><td data-label="Time">${new Date(b.placed).toLocaleString()}</td><td data-label="User">${esc(b.userName)}<br><span style="color:var(--dim)">${esc(b.userEmail)}</span></td>
+        return `<tr><td data-label="Time">${fmtBeirut(b.placed)}</td><td data-label="User">${esc(b.userName)}<br><span style="color:var(--dim)">${esc(b.userEmail)}</span></td>
         <td data-label="Balance now" class="num">${u ? fmt(u.balance) : '—'}</td>
         <td data-label="Selections">${b.legs.map(l => esc(l.selName) + ' · ' + esc(l.matchName)).join('<br>')}</td><td data-label="Stake" class="num">${fmt(b.stake)}</td><td data-label="Odds" class="num">${fmtOdds(b.odds)}</td>
         <td data-label="Payout / returned" class="num">${fmt(b.status === 'open' ? b.payout : (b.returned || 0))}</td><td data-label="Status"><span class="tag ${b.status}">${b.status}</span></td></tr>`;
@@ -1824,7 +1842,7 @@ async function renderAdmin(M) {
           margin: +$('#cfgMargin').value, suspendMs: +$('#cfgSuspendMs').value,
           stakeLimits: { min: +$('#cfgMin').value, maxOddsSingle: +$('#cfgMaxOdds').value, maxSinglePayout: +$('#cfgMaxSingle').value, maxParlayPayout: +$('#cfgMaxParlay').value },
         });
-        engineConfigCache = r.config;
+        engineConfigCache = r;
         toast('Config saved', 'Margin/suspend and stake limits updated.', 'ok');
       } catch (err) { toast('Save failed', err.message, 'bad'); }
     };
@@ -1968,7 +1986,20 @@ let prevScoreByMatch = {};
 // (otherwise every fixture already on the board at login would fire a
 // "new fixture" toast, which is noise, not news).
 let knownMatchIds = null;
-async function refreshAll() {
+// Guards against two refreshAll() calls overlapping — e.g. the regular 3s
+// poll firing while a bet-placement or another manual refresh is still
+// mid-flight. Without this, both calls read the same prevBetStatus/
+// prevScoreByMatch/knownMatchIds "before" state before either writes it
+// back, so a single goal or bet settlement could fire its sound/toast
+// twice. Any call made while one is already running just piggybacks on
+// that in-flight promise instead of starting a second, overlapping fetch.
+let refreshInFlight = null;
+function refreshAll() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doRefreshAll().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+async function doRefreshAll() {
   try {
     const [{ user }, matchesF, matchesB, matchesT, matchesN, { bets }, { txs }, { activity }, simsResp] = await Promise.all([
       api('GET', '/api/me'),

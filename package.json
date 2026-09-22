@@ -1,0 +1,13 @@
+{
+  "name": "stakebet-backend",
+  "version": "1.0.0",
+  "description": "StakeBet sportsbook — real Node.js backend with a persistent SQLite database. Zero external dependencies.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "ISC"
+}

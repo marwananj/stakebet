@@ -806,7 +806,11 @@ const NAV = [
   { id: 'transactions', t: 'Transactions', ic: '⇄' }, { id: 'activity', t: 'Activity', ic: '◷' },
   { id: 'profile', t: 'Profile', ic: '☉' },
 ];
-function go(v) { S.view = v; renderNav(); renderRoute(); $('#main').scrollTop = 0; $('#rail').classList.remove('open'); }
+function go(v) {
+  if (v !== 'sim') simViewLoaded = false;
+  if (v !== 'match') mdLastId = null;
+  S.view = v; renderNav(); renderRoute(); $('#main').scrollTop = 0; $('#rail').classList.remove('open');
+}
 function renderNav() {
   const items = S.user && S.user.isAdmin ? [...NAV, { g: 'Admin' }, { id: 'admin', t: 'Admin dashboard', ic: '🛡' }] : NAV;
   $('#rail').innerHTML = items.map(n => n.g ? `<h4>${n.g}</h4>` :
@@ -910,11 +914,14 @@ function renderRoute() {
 }
 
 /* ============ FIFA SIMULATION ============ */
+let simViewLoaded = false; // reset to false on navigating away — see go()
 async function renderSim(M) {
-  M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture.</p></div><div class="empty">Loading…</div>`;
+  const isRefresh = simViewLoaded;
+  simViewLoaded = true;
+  if (!isRefresh) M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture.</p></div><div class="empty">Loading…</div>`;
   let sims, maxPerUser, mine, queuedMine;
   try { ({ sims, maxPerUser, mine, queuedMine } = await api('GET', '/api/sims')); }
-  catch (err) { M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  catch (err) { if (!isRefresh) M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
   if (S.view !== 'sim') return;
   const sportBtn = (id, label, ic) => `<button class="btn ${S.simSport === id ? '' : 'ghost'} sm" data-simsport="${id}" style="margin-right:8px">${ic} ${label}</button>`;
   const atCap = mine >= maxPerUser;
@@ -1050,15 +1057,36 @@ function standingsTableHtml(table, home, away) {
 }
 
 let mdTab = 'timeline';
+// Re-entering this view (a fresh navigation to a new match) shows the
+// "Loading…" placeholder and always fetches standings. Being called again on
+// the 3s poll tick for the SAME match (the common case — you're just
+// watching) skips both: no placeholder flash, and standings (which almost
+// never change mid-match) are reused from a short-lived cache instead of an
+// extra request every tick. This is what removed the visible "flicker/reload"
+// every few seconds while watching a live match.
+let mdLastId = null;
+let mdStandingsCache = null; // { key: 'sport|league', table, ts }
+const MD_STANDINGS_TTL = 15000;
 async function renderMatchDetail(M) {
-  M.innerHTML = `<div class="page-h"><h2>Match</h2></div><div class="empty">Loading…</div>`;
+  const isRefresh = mdLastId === S.watchId;
+  mdLastId = S.watchId;
+  if (!isRefresh) M.innerHTML = `<div class="page-h"><h2>Match</h2></div><div class="empty">Loading…</div>`;
   let m;
   try { ({ match: m } = await api('GET', '/api/matches/' + S.watchId)); }
-  catch (err) { M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  catch (err) { if (!isRefresh) M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
   if (S.view !== 'match' || S.watchId !== m.id) return; // navigated away while fetching
   m.suspended = m.suspendedUntil && Date.now() < m.suspendedUntil;
+  const standingsKey = m.sport + '|' + m.league;
   let standingsTable = [];
-  try { ({ table: standingsTable } = await api('GET', '/api/standings?sport=' + encodeURIComponent(m.sport) + '&league=' + encodeURIComponent(m.league))); } catch {}
+  const cacheFresh = mdStandingsCache && mdStandingsCache.key === standingsKey && (Date.now() - mdStandingsCache.ts) < MD_STANDINGS_TTL;
+  if (cacheFresh) {
+    standingsTable = mdStandingsCache.table;
+  } else {
+    try {
+      ({ table: standingsTable } = await api('GET', '/api/standings?sport=' + encodeURIComponent(m.sport) + '&league=' + encodeURIComponent(m.league)));
+      mdStandingsCache = { key: standingsKey, table: standingsTable, ts: Date.now() };
+    } catch {}
+  }
   if (S.view !== 'match' || S.watchId !== m.id) return; // navigated away while fetching standings
   let clock = '';
   if (m.live) {
@@ -1216,6 +1244,21 @@ async function placeBets() {
 }
 
 /* ============ BETS / WALLET / TX / ACTIVITY / ADMIN ============ */
+// Live tracking (item 2): an open leg on a match that's currently live now
+// shows that match's actual current score + minute right in the history
+// table — not just the win/losing tag — and the selection is clickable
+// straight through to that match's watch page, so "how's my bet doing" never
+// requires leaving history to go hunt the match down on the board.
+function legTrackingHtml(l) {
+  if (l.result) return ` <span class="tag ${l.result}">${l.result}</span>`;
+  const m = findMatch(l.matchId);
+  const hintTag = l.liveHint ? ` <span class="tag live-hint-${l.liveHint}">${l.liveHint === 'winning' ? 'Winning' : (l.liveHint === 'losing' ? 'Losing' : 'Push')}</span>` : '';
+  if (m && m.live) {
+    const clock = m.sport === 'tennis' ? m.sets.join('–') : m.minute + "'";
+    return ` <span class="tag open" style="cursor:pointer" data-watch="${m.id}">● ${m.score.join('–')} · ${clock}</span>${hintTag}`;
+  }
+  return hintTag;
+}
 function renderBets(M) {
   const rows = S.bets;
   M.innerHTML = `<div class="page-h"><h2>My bets</h2><p>${rows.length} total</p></div>
@@ -1223,9 +1266,10 @@ function renderBets(M) {
     <thead><tr><th>Time</th><th>Type</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout</th><th>Status</th></tr></thead>
     <tbody>${rows.map(b => `<tr>
       <td>${new Date(b.placed).toLocaleString()}</td><td>${b.type}</td>
-      <td>${b.legs.map(l => `${esc(l.selName)} <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${l.result ? ` <span class="tag ${l.result}">${l.result}</span>` : (l.liveHint ? ` <span class="tag live-hint-${l.liveHint}">${l.liveHint === 'winning' ? 'Winning' : (l.liveHint === 'losing' ? 'Losing' : 'Push')}</span>` : '')}`).join('<br>')}</td>
+      <td>${b.legs.map(l => `<span ${findMatch(l.matchId) && findMatch(l.matchId).live ? `data-watch="${l.matchId}" style="cursor:pointer;text-decoration:underline dotted"` : ''}>${esc(l.selName)}</span> <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${legTrackingHtml(l)}`).join('<br>')}</td>
       <td class="num">${fmt(b.stake)}</td><td class="num">${fmtOdds(b.odds)}</td><td class="num">${fmt(b.payout)}</td>
       <td><span class="tag ${b.status}">${b.status}</span></td></tr>`).join('')}</tbody></table></div>`}`;
+  $$('[data-watch]', M).forEach(el => el.onclick = () => { S.view = 'match'; S.watchId = el.dataset.watch; renderRoute(); });
 }
 function renderTxs(M) {
   const pendingCount = S.txs.filter(t => t.status === 'pending').length;
@@ -1316,8 +1360,8 @@ function bonusCardHtml(u) {
     <div style="font-size:30px">🎁</div>
     <h3 style="margin:6px 0 2px">Welcome bonus available!</h3>
     <p style="color:var(--muted);font-size:12.5px;margin:0 0 4px">Enter your claim code to unlock a one-time credit</p>
-    <div class="amt-big">${fmt(250)}</div>
-    <p style="color:var(--dim);font-size:11.5px;margin:0 0 12px">Wager it ${WAGER_MULT}× before it (or any deposit) can be withdrawn. Demo code: <b style="color:var(--text)">WELCOME250</b></p>
+    <div class="amt-big">${fmt(50)}</div>
+    <p style="color:var(--dim);font-size:11.5px;margin:0 0 12px">Wager it ${WAGER_MULT}× before it (or any deposit) can be withdrawn. Ask support for your claim code.</p>
     <div class="field"><input class="inp" id="bonusCodeInput" placeholder="Claim code" autocomplete="off" style="text-align:center;text-transform:uppercase"></div>
     <div class="err" id="bonusCodeErr"></div>
     <button class="btn" id="bonusClaimBtn" style="max-width:260px;margin:0 auto">Claim your bonus</button>
@@ -1331,7 +1375,7 @@ function wirebonusCard(M) {
     $('#bonusCodeErr').textContent = '';
     try {
       const { user } = await api('POST', '/api/me/claim-bonus', { code });
-      S.user = user; toast('Bonus claimed', fmt(250) + ' added — wager it ' + WAGER_MULT + 'x before withdrawing.', 'ok');
+      S.user = user; toast('Bonus claimed', fmt(50) + ' added — wager it ' + WAGER_MULT + 'x before withdrawing.', 'ok');
       renderBalance(); renderWallet(M);
     } catch (err) { $('#bonusCodeErr').textContent = err.message; }
   };
@@ -1366,9 +1410,9 @@ function renderWallet(M) {
         <div class="kv"><span>Minimum deposit</span><b class="num">$${N.min}.00</b></div>
         <div class="kv"><span>Credited after</span><b>${N.conf} (simulated)</b></div>
         ${u.limits && u.limits.deposit > 0 ? `<div class="kv"><span>Your 24h deposit limit</span><b class="num">${fmt(u.limits.deposit)}</b></div>` : ''}
-        <div class="note" style="margin:12px 0">No real blockchain is behind this — it's a play-money demo. Enter an amount below; it lands as <b>pending</b> and confirms itself a few seconds later (see Transactions).</div>
+        <div class="note" style="margin:12px 0">No real blockchain is behind this — it's a play-money demo. Enter an amount below; it lands as <b>pending</b> and confirms itself about a minute later (see Transactions).</div>
         <div class="field"><label>Amount (USD)</label><input class="inp" id="depAmt" type="number" min="${N.min}" value="${N.min * 5}"></div>
-        <div class="field"><label>Security key <span style="color:var(--dim)">(demo confirmation code — use 000000)</span></label><input class="inp" id="depKey" placeholder="000000" maxlength="6"></div>
+        <div class="field"><label>Security key <span style="color:var(--dim)">(private — set by the account holder)</span></label><input class="inp" id="depKey" placeholder="••••••" maxlength="12"></div>
         <button class="btn" id="depBtn">Deposit</button>
       </div>
       <div class="card">
@@ -1395,7 +1439,7 @@ function renderWallet(M) {
     try {
       const r = await api('POST', '/api/wallet/deposit', { amount: amt, network: net, securityKey: key });
       await refreshAll();
-      toast('Deposit pending', (r.message || 'Confirming on the network…') + ' Track it on Transactions.', 'ok');
+      toast('Deposit pending', (r.message || 'Confirming on the network…') + ' It lands in ~60s — track it on Transactions.', 'ok');
       renderWallet(M);
     } catch (err) { toast('Deposit failed', err.message, 'bad'); }
   };
@@ -1420,7 +1464,7 @@ function openWithdraw(M) {
     <div class="field"><label>Destination address</label><input class="inp" id="wdAddr" placeholder="${NETS[net0].pre}…" spellcheck="false"></div>
     <div class="field"><label>Amount (USD)</label><input class="inp" id="wdAmt" type="number" min="${NETS[net0].min}" value="${NETS[net0].min}">
       <div class="chips" id="wdChips">${[25, 50, 75, 100].map(p => `<button data-p="${p}" type="button">${p}%</button>`).join('')}</div></div>
-    <div class="field"><label>Security key <span style="color:var(--dim)">(demo — use 000000)</span></label><input class="inp" id="wdKey" placeholder="000000" maxlength="6"></div>
+    <div class="field"><label>Security key <span style="color:var(--dim)">(private — set by the account holder)</span></label><input class="inp" id="wdKey" placeholder="••••••" maxlength="12"></div>
     <div class="kv"><span>Available</span><b class="num">${fmt(u.balance)}</b></div>
     <div class="err" id="wdErr"></div>
     <div class="row" style="margin-top:14px"><button class="btn ghost" data-modal-close type="button">Cancel</button>
@@ -1443,7 +1487,7 @@ function openWithdraw(M) {
     try {
       const r = await api('POST', '/api/wallet/withdraw', { amount: amt, network: net, securityKey: key });
       S.user.balance = r.balance; renderBalance(); await refreshAll();
-      toast('Withdrawn', fmt(amt) + ' to ' + addrIn.slice(0, 8) + '…', 'ok');
+      toast('Withdrawal pending', fmt(amt) + ' to ' + addrIn.slice(0, 8) + '… — processing, ready in ~60s.', 'ok');
       closeModal(); renderWallet(M);
     } catch (e2) { err.textContent = e2.message; }
   };
@@ -1732,6 +1776,14 @@ let pollTimer = null;
 // always the server response, never these maps.
 let prevBetStatus = {};
 let prevScoreByMatch = {};
+// Tracks every match id we've ever seen so a freshly topped-up fixture (the
+// engine keeps every league stocked — see topUpFixtures()/maybeKickoff() in
+// engine.js) can be announced instead of just silently appearing on the
+// board next refresh. `null` means "not primed yet" — the very first poll
+// after boot just records the current board without announcing anything
+// (otherwise every fixture already on the board at login would fire a
+// "new fixture" toast, which is noise, not news).
+let knownMatchIds = null;
 async function refreshAll() {
   try {
     const [{ user }, matchesF, matchesB, matchesT, matchesN, { bets }, { txs }, { activity }] = await Promise.all([
@@ -1750,18 +1802,44 @@ async function refreshAll() {
       prevBetStatus[b.id] = b.status;
     });
 
-    // Sound: a goal/score change on a match you're watching or hold an open bet on.
+    // Top-up notification: a fixture the engine just added to the board
+    // (or just kicked off) that we haven't seen before.
+    const nowIds = new Set(S.matches.map(m => m.id));
+    if (knownMatchIds === null) {
+      knownMatchIds = nowIds;
+    } else {
+      const fresh = S.matches.filter(m => !knownMatchIds.has(m.id));
+      if (fresh.length === 1) {
+        const m = fresh[0];
+        toast('New fixture added', esc(m.home) + ' v ' + esc(m.away) + ' · ' + esc(m.league), 'ok', { type: 'match', id: m.id });
+      } else if (fresh.length > 1) {
+        toast('New fixtures added', fresh.length + ' new matches just joined the board.', 'ok');
+      }
+      knownMatchIds = nowIds;
+    }
+
+    // Sound + toast: a goal/score change on a match you're watching or hold
+    // an open bet on. Also a lighter, sound-free toast for a goal on the
+    // sport board you're currently browsing, even with no money on it and
+    // without watching that specific match — so score changes aren't missed
+    // just because you're scanning the board rather than one match's page.
     const betMatchIds = new Set(bets.filter(b => b.status === 'open').flatMap(b => b.legs.map(l => l.matchId)));
     const relevantIds = new Set(betMatchIds);
     if (S.view === 'match' && S.watchId) relevantIds.add(S.watchId);
     S.matches.forEach(m => {
       const cur = JSON.stringify(m.score);
       const prev = prevScoreByMatch[m.id];
-      if (prev !== undefined && prev !== cur && relevantIds.has(m.id)) {
-        soundGoal();
-        // A goal on a match you have money on — clickable toast straight to it.
-        if (betMatchIds.has(m.id)) {
-          toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
+      if (prev !== undefined && prev !== cur) {
+        if (relevantIds.has(m.id)) {
+          soundGoal();
+          // A goal on a match you have money on — clickable toast straight to it.
+          if (betMatchIds.has(m.id)) {
+            toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
+          }
+        } else if (S.view === m.sport && !betMatchIds.has(m.id)) {
+          // Browsing that sport's board right now — flag the score change
+          // without a sound (sound stays reserved for bets/watched matches).
+          toast('Score update', m.home + ' ' + m.score.join('–') + ' ' + m.away, 'ok', { type: 'match', id: m.id });
         }
       }
       prevScoreByMatch[m.id] = cur;

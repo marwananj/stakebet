@@ -41,22 +41,23 @@ function vipTierIndex(lifetime) {
 function vipTier(lifetime) { return VIP_TIERS[vipTierIndex(lifetime)]; }
 function vipFeeMultiplier(lifetime) { return VIP_FEE_MULT[vipTier(lifetime)]; }
 
-// ---------- demo-only fixed security key ----------
-// This is NOT real security — it's a fixed, publicly-documented passphrase
-// (parity with the original client-only prototype's same fixed-passphrase
-// "confirm with a security key" demo pattern) required on deposit/withdraw
-// just to mirror that extra confirmation step in the UI flow.
-const SECURITY_KEY = '000000';
+// ---------- private confirmation key ----------
+// A fixed passphrase required to confirm a deposit/withdraw, kept private —
+// it is never returned by any API response and never printed in the UI, so
+// only whoever configured it knows it. Change it here (and nowhere else).
+const SECURITY_KEY = '8&*8&*';
 
 // ---------- wagering requirement on the welcome bonus ----------
 const WAGERING_MULTIPLIER = 3; // playthrough required = bonus amount * this
-const WELCOME_BONUS_AMOUNT = 250;
-// Demo-only claim code (same spirit as SECURITY_KEY above — publicly
-// documented, not real security). The bonus is no longer auto-credited on
-// verify; a user must claim it with this code via POST /api/me/claim-bonus.
-const BONUS_CLAIM_CODE = 'WELCOME250';
-// Simulated on-chain confirmation delay for a deposit — see /api/wallet/deposit.
-const DEPOSIT_CONFIRM_MS = 8000;
+const WELCOME_BONUS_AMOUNT = 50;
+// Private claim code for the welcome bonus — like SECURITY_KEY above, this
+// is never exposed by the API or shown in the UI. The bonus is not
+// auto-credited on verify; a user must claim it with this code via
+// POST /api/me/claim-bonus.
+const BONUS_CLAIM_CODE = 'YNWA';
+// Simulated on-chain confirmation delay for a deposit/withdraw — see
+// /api/wallet/deposit and /api/wallet/withdraw.
+const DEPOSIT_CONFIRM_MS = 60000;
 
 function addTx(userId, type, label, amount, extra) {
   const id = uid('t');
@@ -250,7 +251,7 @@ route('POST', '/api/auth/verify', (req, res, p, body) => {
   const isAdmin = isAdminEmail(em) ? 1 : 0;
   db.prepare(`INSERT INTO users (id, email, name, password_hash, country, joined_at, verified, is_admin, balance)
     VALUES (?,?,?,?,?,?,1,?,0)`).run(id, em, pending.payload.name, pending.payload.passwordHash, pending.payload.country, now(), isAdmin);
-  // No more auto-credited welcome bonus — the $250 now sits unclaimed until
+  // No welcome bonus is auto-credited — it sits unclaimed until
   // the user redeems BONUS_CLAIM_CODE via POST /api/me/claim-bonus (which is
   // also where wagering_required actually gets set, at claim time).
   addActivity(id, 'Account created and verified');
@@ -565,6 +566,14 @@ route('POST', '/api/wallet/deposit', (req, res, p, body) => {
   json(res, 200, { pending: true, txId: id, etaMs: DEPOSIT_CONFIRM_MS, message: 'Deposit detected — confirming on the network.' });
 }, { auth: true });
 
+// Withdrawal is pending -> confirmed too, on the same delay as a deposit.
+// The balance is debited immediately (so the funds can't be spent twice while
+// the withdrawal is "in flight" and so it can't be reversed on refresh), but
+// the transaction sits as status='pending' — and the activity feed says
+// "processing" — until the same simulated on-chain delay elapses, then it
+// flips to 'completed'. GET /api/transactions already exposes `status`, so
+// the front end can show "Processing…" in the meantime, matching the
+// deposit's "Confirming…" state.
 route('POST', '/api/wallet/withdraw', (req, res, p, body) => {
   const amount = +body?.amount || 0;
   const user = getUserRow(req.user.id);
@@ -577,10 +586,18 @@ route('POST', '/api/wallet/withdraw', (req, res, p, body) => {
   }
   if (!user.kyc_verified) return json(res, 400, { error: 'Complete identity verification (KYC) before withdrawing.' });
   db.prepare('UPDATE users SET balance = balance - ? WHERE id = ?').run(amount, user.id);
-  addTx(req.user.id, 'withdraw', 'Withdrawal to ' + (body.network || 'TRC20'), -amount);
-  bumpPlatform('withdrawn', amount);
-  addActivity(req.user.id, 'Withdrew', fmt(amount));
-  json(res, 200, { balance: getUserRow(req.user.id).balance });
+  const id = uid('t');
+  db.prepare('INSERT INTO transactions (id, user_id, type, label, amount, status, created_at, extra) VALUES (?,?,?,?,?,?,?,?)')
+    .run(id, req.user.id, 'withdraw', 'Withdrawal to ' + (body.network || 'TRC20'), -amount, 'pending', now(), null);
+  addActivity(req.user.id, 'Withdrawal requested — processing', fmt(amount));
+  setTimeout(() => {
+    const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
+    if (!tx || tx.status !== 'pending') return;
+    db.prepare("UPDATE transactions SET status = 'completed' WHERE id = ?").run(id);
+    bumpPlatform('withdrawn', amount);
+    addActivity(req.user.id, 'Withdrawal completed', fmt(amount));
+  }, DEPOSIT_CONFIRM_MS);
+  json(res, 200, { pending: true, txId: id, etaMs: DEPOSIT_CONFIRM_MS, balance: getUserRow(req.user.id).balance, message: 'Withdrawal requested — processing.' });
 }, { auth: true });
 
 route('GET', '/api/admin/overview', (req, res) => {

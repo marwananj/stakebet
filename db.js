@@ -30,7 +30,11 @@ CREATE TABLE IF NOT EXISTS users (
   odds_format TEXT NOT NULL DEFAULT 'decimal',
   deposit_limit REAL NOT NULL DEFAULT 0,
   loss_limit REAL NOT NULL DEFAULT 0,
-  lock_until INTEGER
+  lock_until INTEGER,
+  lifetime_wagered REAL NOT NULL DEFAULT 0,
+  wagering_required REAL NOT NULL DEFAULT 0,
+  wagering_progress REAL NOT NULL DEFAULT 0,
+  kyc_verified INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS verifications (
@@ -101,7 +105,44 @@ CREATE TABLE IF NOT EXISTS config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS chat (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT NOT NULL,
+  msg TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_created ON chat(created_at);
+
+CREATE TABLE IF NOT EXISTS sim_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  sport TEXT NOT NULL,
+  home TEXT NOT NULL,
+  away TEXT NOT NULL,
+  final_score TEXT NOT NULL,
+  result TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sim_history_user ON sim_history(user_id);
 `);
+
+// Defensive migration for a database created before these columns existed —
+// harmless no-op on a fresh database (the CREATE TABLE above already has them).
+function ensureColumn(table, col, decl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
+}
+ensureColumn('users', 'lifetime_wagered', "REAL NOT NULL DEFAULT 0");
+ensureColumn('users', 'wagering_required', "REAL NOT NULL DEFAULT 0");
+ensureColumn('users', 'wagering_progress', "REAL NOT NULL DEFAULT 0");
+ensureColumn('users', 'kyc_verified', "INTEGER NOT NULL DEFAULT 0");
+// Welcome bonus is now a claimed code (see /api/me/claim-bonus in routes.js),
+// not an auto-credit on verify — this tracks whether that one-time claim has
+// already been used, independent of wagering_required/progress (which now
+// only get set at claim time, not at signup).
+ensureColumn('users', 'bonus_claimed', "INTEGER NOT NULL DEFAULT 0");
 
 for (const k of ['staked', 'deposited', 'withdrawn', 'betsPlaced', 'payout']) {
   db.prepare('INSERT OR IGNORE INTO platform (key, value) VALUES (?, 0)').run(k);

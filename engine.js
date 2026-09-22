@@ -323,9 +323,21 @@ function nextWeekday(targetDow, hour, minute) {
   return d.getTime();
 }
 function buildRealFixtures() {
+  // One matchday's worth of headline, real-team fixtures per league already
+  // on the board (plus Champions League), so every league — not just one —
+  // has a verified, "✓ Verified" fixture in its own rotation, the same
+  // spread-across-every-league approach the client-only artifact used.
   return [
     { league: 'Premier League', home: 'Arsenal', away: 'Liverpool', start: nextWeekday(6, 15, 0) },
     { league: 'Premier League', home: 'Man City', away: 'Chelsea', start: nextWeekday(6, 17, 30) },
+    { league: 'Premier League', home: 'Tottenham', away: 'Man United', start: nextWeekday(0, 16, 0) },
+    { league: 'La Liga', home: 'Real Madrid', away: 'Barcelona', start: nextWeekday(6, 21, 0) },
+    { league: 'La Liga', home: 'Atlético Madrid', away: 'Sevilla', start: nextWeekday(0, 18, 30) },
+    { league: 'Serie A', home: 'Inter', away: 'Juventus', start: nextWeekday(6, 19, 45) },
+    { league: 'Serie A', home: 'Milan', away: 'Napoli', start: nextWeekday(0, 20, 45) },
+    { league: 'Bundesliga', home: 'Bayern Munich', away: 'Borussia Dortmund', start: nextWeekday(5, 19, 30) },
+    { league: 'Bundesliga', home: 'RB Leipzig', away: 'Bayer Leverkusen', start: nextWeekday(6, 16, 30) },
+    { league: 'Ligue 1', home: 'Paris Saint-Germain', away: 'Marseille', start: nextWeekday(0, 20, 45) },
     { league: 'UEFA Champions League', home: 'Real Madrid', away: 'Bayern Munich', start: nextWeekday(2, 21, 0) },
     { league: 'UEFA Champions League', home: 'Paris Saint-Germain', away: 'Inter', start: nextWeekday(2, 21, 0) },
     { league: 'UEFA Champions League', home: 'Barcelona', away: 'Manchester City', start: nextWeekday(3, 21, 0) },
@@ -339,6 +351,20 @@ function seedRealFixtures() {
     saveMatch(m);
   }
 }
+// Kicks a single fixture off mid-match (random elapsed clock/score) — shared
+// by the boot-time seed below and used to bring a league straight to a live
+// match instead of waiting for its scheduled kickoff.
+function kickOffMidMatch(m) {
+  const cap = capFor(m);
+  const elapsed = Math.floor(rnd(6, Math.min(cap - 4, cap * 0.7)));
+  m.live = true; m.minute = elapsed; m.liveStart = now() - elapsed * SEC_PER_MATCH_MIN * 1000;
+  m.start = now() - elapsed * 60000; m.momentum = 50;
+  if (m.sport === 'football') m.score = [Math.floor(rnd(0, 3)), Math.floor(rnd(0, 3))];
+  else if (m.sport === 'tennis') { m.sets = [Math.floor(rnd(0, 2)), Math.floor(rnd(0, 2))]; m.games = [Math.floor(rnd(0, 6)), Math.floor(rnd(0, 6))]; m.score = m.sets; }
+  else { const f = elapsed / cap; m.score = [Math.round(m.str[0] * f), Math.round(m.str[1] * f)]; }
+  priceMatch(m);
+  saveMatch(m);
+}
 function seedIfEmpty() {
   const { c } = db.prepare('SELECT COUNT(*) AS c FROM matches').get();
   if (c > 0) return;
@@ -346,21 +372,12 @@ function seedIfEmpty() {
   for (const s of SPORTS) {
     for (const [lg, teams] of Object.entries(TEAMS[s.id])) {
       genFixtures(s.id, lg, teams);
-      // Kick one match off immediately (mid-match) so every league has
-      // something live the moment the server boots, instead of an empty board.
+      // Kick MAX_LIVE_PER_LEAGUE matches off immediately (mid-match) so every
+      // league starts with a full slate of live action the moment the server
+      // boots, instead of a mostly-empty board that only fills in as
+      // fixtures individually reach their scheduled kickoff time.
       const rows = listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
-      const m = rows[0];
-      if (m) {
-        const cap = capFor(m);
-        const elapsed = Math.floor(rnd(6, Math.min(cap - 4, cap * 0.7)));
-        m.live = true; m.minute = elapsed; m.liveStart = now() - elapsed * SEC_PER_MATCH_MIN * 1000;
-        m.start = now() - elapsed * 60000; m.momentum = 50;
-        if (s.id === 'football') m.score = [Math.floor(rnd(0, 3)), Math.floor(rnd(0, 3))];
-        else if (s.id === 'tennis') { m.sets = [Math.floor(rnd(0, 2)), Math.floor(rnd(0, 2))]; m.games = [Math.floor(rnd(0, 6)), Math.floor(rnd(0, 6))]; m.score = m.sets; }
-        else { const f = elapsed / cap; m.score = [Math.round(m.str[0] * f), Math.round(m.str[1] * f)]; }
-        priceMatch(m);
-        saveMatch(m);
-      }
+      rows.slice(0, MAX_LIVE_PER_LEAGUE).forEach(kickOffMidMatch);
     }
   }
 }
@@ -379,27 +396,35 @@ function topUpFixtures() {
   }
 }
 
-const MAX_LIVE_PER_SPORT = 3;
+// Per-LEAGUE cap, not per-sport — with 5 football leagues on the board, a
+// single sport-wide cap of 3 meant at most 3 live football matches total no
+// matter how many leagues existed. Capping per league instead means every
+// league gets its own shot at having something live, so the board actually
+// fills up the way a real multi-league book's does ("many matches, real and
+// live" rather than a handful of matches starved across five competitions).
+const MAX_LIVE_PER_LEAGUE = 2;
 function maybeKickoff() {
   for (const s of SPORTS) {
-    const live = listMatches({ sport: s.id, live: true, ended: false });
-    if (live.length >= MAX_LIVE_PER_SPORT) continue;
-    const upcoming = listMatches({ sport: s.id, live: false, ended: false });
-    if (!upcoming.length) continue;
-    let due = upcoming.filter((m) => m.start <= now());
-    // Never let a sport's board go completely dark: if nothing is live at
-    // all, kick off the soonest upcoming fixture right away instead of
-    // waiting out its scheduled start — a real book always has *something*
-    // on, even if the strict schedule says otherwise.
-    if (!due.length) {
-      if (live.length === 0) due = [upcoming.sort((a, b) => a.start - b.start)[0]];
-      else continue; // wait for a fixture's own kick-off time, same as a real schedule
+    for (const lg of Object.keys(TEAMS[s.id])) {
+      const live = listMatches({ sport: s.id, live: true, ended: false }).filter((m) => m.league === lg);
+      if (live.length >= MAX_LIVE_PER_LEAGUE) continue;
+      const upcoming = listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
+      if (!upcoming.length) continue;
+      let due = upcoming.filter((m) => m.start <= now());
+      // Never let a league's board go completely dark: if nothing is live at
+      // all in this league, kick off the soonest upcoming fixture right away
+      // instead of waiting out its scheduled start — a real book always has
+      // *something* on, even if the strict schedule says otherwise.
+      if (!due.length) {
+        if (live.length === 0) due = [upcoming.sort((a, b) => a.start - b.start)[0]];
+        else continue; // wait for a fixture's own kick-off time, same as a real schedule
+      }
+      const m = pick(due);
+      m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50; m.score = [0, 0];
+      if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
+      priceMatch(m);
+      saveMatch(m);
     }
-    const m = pick(due);
-    m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50; m.score = [0, 0];
-    if (m.sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
-    priceMatch(m);
-    saveMatch(m);
   }
 }
 

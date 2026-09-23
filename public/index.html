@@ -186,11 +186,19 @@ a{color:var(--accent)}
 .navb.on{background:linear-gradient(135deg,var(--accent-soft),rgba(0,229,214,.05));color:var(--accent);font-weight:700;box-shadow:inset 0 0 0 1px rgba(0,229,214,.3)}
 .main{grid-column:2;overflow-y:auto;padding:20px 22px 60px}
 .slipcol{grid-column:3;border-left:1px solid var(--line);background:var(--surface);overflow-y:auto;display:flex;flex-direction:column}
+.menuBtn{display:none}
 @media (max-width:1100px){
   .layout{grid-template-columns:0 1fr 0}
   .rail,.slipcol{display:none}
   .rail.open,.slipcol.open{position:fixed;top:56px;bottom:0;z-index:50;width:260px}
-  .rail.open{display:block;left:0}
+  .rail.open{display:block;left:0;box-shadow:10px 0 30px -10px rgba(0,0,0,.6)}
+  /* The rail (Sports/Account/Admin nav) has no way to open on mobile without
+     this — it's the only place "Transactions", "Activity", "Profile" and,
+     critically, "Admin dashboard" live, none of which fit in the 5-slot
+     bottom tab bar. Without a menu button those pages/the whole admin
+     section were simply unreachable on a phone. */
+  .menuBtn{display:inline-flex}
+}
   /* .slipcol's un-hidden state is normally display:flex (see its base rule)
      so .slip-body's flex:1 can stretch to fill the column and scroll while
      the "Place bet" footer stays pinned below it. Reopening it as display:
@@ -316,11 +324,25 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .admin-actionrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .admin-num{width:56px;flex:none;padding:8px 6px;text-align:center}
 .admin-fxcard .row{align-items:flex-end}
+/* Sticky quick-jump bar for the admin dashboard — it's a long page (config,
+   fixtures, matches, users, bets), and on a phone especially there was no
+   fast way to reach any section but scrolling past everything above it. */
+.admin-subnav{position:sticky;top:0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;background:var(--ink);padding:8px 0 14px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.admin-subnav button{padding:7px 13px;border-radius:20px;background:var(--raised);color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}
+.admin-subnav button:hover{background:var(--raised2);color:var(--text)}
 .tag{display:inline-block;font-size:10.5px;padding:3px 8px;border-radius:6px;font-weight:700;background:var(--raised2);color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
 .tag.won{background:var(--up-soft);color:var(--up)}
 .tag.lost{background:var(--down-soft);color:var(--down)}
 .tag.open{background:var(--accent-soft);color:var(--accent)}
 .tag.void{background:var(--raised2);color:var(--muted)}
+/* Distinct from .tag.won (which means "this bet/match resolved as a win") —
+   "verified" is a different concept (a curated real-world fixture whose
+   score only the admin can change) and re-using the same green previously
+   made a live verified match's status cell read like it had already
+   finished as a win. Gold instead, matching the "real money odds" gold used
+   elsewhere in the app for anything authoritative. */
+.tag.verified{background:rgba(240,185,11,.14);color:var(--gold, #f0b90b)}
+.tag.fifabadge{background:rgba(124,124,255,.14);color:#9b9bff}
 .tag.live-hint-winning{background:var(--up-soft);color:var(--up)}
 .tag.live-hint-losing{background:var(--down-soft);color:var(--down)}
 .tag.live-hint-push{background:var(--raised2);color:var(--muted)}
@@ -632,6 +654,7 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 
 <section id="app" class="hide">
   <div class="topbar">
+    <button class="icon-btn menuBtn" id="menuBtn" title="Menu">☰</button>
     <div class="brand" style="margin:0"><div class="mark">S</div><h1 style="font-size:15px">StakeBet</h1></div>
     <div class="spacer"></div>
     <div class="balance"><div class="lbl">Balance</div><div class="amt num" id="balanceAmt">$0.00</div></div>
@@ -935,6 +958,12 @@ function renderNav() {
   $('#slipTabBtn').onclick = () => $('#slipcol').classList.add('open');
 }
 document.addEventListener('click', e => {
+  if (e.target.closest('#menuBtn')) { $('#rail').classList.toggle('open'); return; }
+  // Tapping anywhere outside the open mobile rail (and not on the button that
+  // opened it) closes it again, same as tapping a nav link inside it does.
+  if ($('#rail').classList.contains('open') && !e.target.closest('#rail') && !e.target.closest('#menuBtn')) {
+    $('#rail').classList.remove('open');
+  }
   const g = e.target.closest('[data-go]'); if (g) return go(g.dataset.go);
   if (e.target.closest('#slipClose')) { $('#slipcol').classList.remove('open'); return; }
   const w = e.target.closest('[data-watch]');
@@ -1825,6 +1854,85 @@ async function renderProfile(M) {
   });
 }
 let engineConfigCache = null;
+// Builds the <tr> markup for the admin matches table — pulled out of
+// renderAdmin() so the search box can re-filter and re-render just this
+// table's rows without a full page rebuild (which would drop focus/scroll).
+function matchRowsHtml(list) {
+  if (!list.length) return `<tr><td colspan="7" style="color:var(--dim)">No matches found.</td></tr>`;
+  return list.map(m => `<tr>
+    <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.verified ? '<span class="tag verified" style="margin-left:4px">✓ Verified</span>' : ''}${m.kind === 'fifa' ? '<span class="tag fifabadge" style="margin-left:4px">FIFA</span>' : ''}</td>
+    <td data-label="Sport / League">${esc(m.sport)} · ${esc(m.league)}</td>
+    <td data-label="Match">${esc(m.home)} v ${esc(m.away)}</td>
+    <td data-label="Score" class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}${m.targetScore ? `<div style="font-size:10.5px;color:var(--gold);font-weight:700">→ ${m.targetScore.join('–')} target${m.targetHT ? ' (HT ' + m.targetHT.join('–') + ')' : ''}</div>` : ''}</td>
+    <td data-label="Minute" class="num">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : '—')}</td>
+    <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
+    <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
+      <div class="admin-actionrow">
+        ${m.status === 'upcoming' ? `<button class="btn ghost sm" data-start-now="${m.id}">Start now</button>` : ''}
+        ${m.status === 'live' ? `<button class="btn ghost sm" data-inc="${m.id}" data-inc-side="home">+1 home</button>
+        <button class="btn ghost sm" data-inc="${m.id}" data-inc-side="away">+1 away</button>` : ''}
+        <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
+        <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
+      </div>
+      ${m.sport === 'football' ? `
+      <div class="admin-actionrow" style="margin-top:6px" title="Plays out naturally at random times across the match instead of jumping straight to this score">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="H" value="${m.targetScore ? m.targetScore[0] : ''}" data-tgt-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="A" value="${m.targetScore ? m.targetScore[1] : ''}" data-tgt-away="${m.id}">
+        <button class="btn ghost sm" data-set-final="${m.id}">Set final score</button>
+      </div>
+      ${!m.htScore ? `
+      <div class="admin-actionrow" style="margin-top:6px" title="Optional checkpoint — hits exactly this score at half-time on the way to the final score above">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="H" value="${m.targetHT ? m.targetHT[0] : ''}" data-tgtht-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="A" value="${m.targetHT ? m.targetHT[1] : ''}" data-tgtht-away="${m.id}">
+        <button class="btn ghost sm" data-set-ht="${m.id}">Set HT score</button>
+      </div>` : ''}` : `
+      <div class="admin-actionrow" style="margin-top:6px">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
+        <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
+      </div>`}
+      ${m.sport === 'football' && m.live ? `
+      <div class="admin-actionrow" style="margin-top:6px">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
+        <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>+HT added time</button>
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
+        <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">+FT added time</button>
+      </div>` : ''}`}</td>
+  </tr>`).join('');
+}
+function userRowsHtml(list) {
+  if (!list.length) return `<tr><td colspan="7" style="color:var(--dim)">No users found.</td></tr>`;
+  return list.map(u => `<tr>
+    <td data-label="User">${esc(u.name)}<br><span style="color:var(--dim)">${esc(u.email)}</span></td>
+    <td data-label="Balance" class="num">${fmt(u.balance)}</td>
+    <td data-label="Lifetime wagered" class="num">${fmt(u.lifetime_wagered || 0)}</td>
+    <td data-label="KYC">${u.kyc_verified ? '<span class="tag won">Verified</span>' : '<span class="tag">Pending</span>'}</td>
+    <td data-label="Admin">${u.is_admin ? '<span class="tag open">Admin</span>' : '—'}</td>
+    <td data-label="Locked until">${u.lock_until && u.lock_until > Date.now() ? fmtBeirut(u.lock_until) : '—'}</td>
+    <td data-label="Actions">
+      <div class="admin-actionrow">
+        <button class="btn ghost sm" data-toggle-admin="${u.id}">${u.is_admin ? 'Revoke admin' : 'Make admin'}</button>
+        <button class="btn ghost sm" data-lock-user="${u.id}">Lock 24h</button>
+      </div>
+    </td>
+  </tr>`).join('');
+}
+function betRowsHtml(list, users) {
+  if (!list.length) return `<tr><td colspan="8" style="color:var(--dim)">No bets found.</td></tr>`;
+  return list.map(b => {
+    const u = users.find(x => x.email === b.userEmail);
+    return `<tr><td data-label="Time">${fmtBeirut(b.placed)}</td><td data-label="User">${esc(b.userName)}<br><span style="color:var(--dim)">${esc(b.userEmail)}</span></td>
+    <td data-label="Balance now" class="num">${u ? fmt(u.balance) : '—'}</td>
+    <td data-label="Selections">${b.legs.map(l => esc(l.selName) + ' · ' + esc(l.matchName)).join('<br>')}</td><td data-label="Stake" class="num">${fmt(b.stake)}</td><td data-label="Odds" class="num">${fmtOdds(b.odds)}</td>
+    <td data-label="Payout / returned" class="num">${fmt(b.status === 'open' ? b.payout : (b.returned || 0))}</td>
+    <td data-label="Status"><span class="tag ${b.status}">${b.status}</span></td>
+    <td data-label="Admin">${b.status === 'open' ? `<div class="admin-actionrow">
+      <button class="btn ghost sm" data-void-bet="${b.id}">Void</button>
+      <button class="btn ghost sm" data-settle-bet="${b.id}" data-settle-result="won">Force won</button>
+      <button class="btn ghost sm" data-settle-bet="${b.id}" data-settle-result="lost">Force lost</button>
+    </div>` : '<span style="color:var(--dim)">—</span>'}</td></tr>`;
+  }).join('');
+}
 async function renderAdmin(M) {
   // Every admin action (set score, suspend, end, add fixture, toggle-admin…)
   // re-renders this whole page. Blanking it to "Loading…" first collapses
@@ -1848,7 +1956,15 @@ async function renderAdmin(M) {
     const cfg = (engineConfigCache && engineConfigCache.config) || { margin: 0.055, suspendMs: 4000 };
     const limits = (engineConfigCache && engineConfigCache.stakeLimits) || { min: 0.10, maxOddsSingle: 350, maxSinglePayout: 1000, maxParlayPayout: 25000 };
     $('#adminBody').innerHTML = `
-      <div class="grid2" style="margin-bottom:20px">
+      <div class="admin-subnav" id="adminSubnav">
+        <button data-jump="sec-overview">Overview</button>
+        <button data-jump="sec-config">Config</button>
+        <button data-jump="sec-fixtures">Add fixture</button>
+        <button data-jump="sec-matches">Matches</button>
+        <button data-jump="sec-users">Users</button>
+        <button data-jump="sec-bets">Bets</button>
+      </div>
+      <div id="sec-overview" class="grid2" style="margin-bottom:20px">
         <div class="stat"><div class="l">Total staked</div><div class="v">${fmt(platform.staked)}</div></div>
         <div class="stat"><div class="l">Total paid out</div><div class="v">${fmt(platform.payout)}</div></div>
         <div class="stat"><div class="l">Deposited</div><div class="v">${fmt(platform.deposited)}</div></div>
@@ -1857,7 +1973,7 @@ async function renderAdmin(M) {
         <div class="stat"><div class="l">Users</div><div class="v">${users.length}</div></div>
       </div>
 
-      <h3>Engine &amp; stake config</h3>
+      <h3 id="sec-config">Engine &amp; stake config</h3>
       <div class="card" style="margin-bottom:24px">
         <div class="row">
           <div class="field"><label>Margin (0.01–0.12)</label><input class="inp" id="cfgMargin" type="number" step="0.005" min="0.01" max="0.12" value="${cfg.margin}"></div>
@@ -1874,7 +1990,7 @@ async function renderAdmin(M) {
         <button class="btn ghost" id="cfgSaveBtn" style="width:auto">Save config</button>
       </div>
 
-      <h3>Add fixture</h3>
+      <h3 id="sec-fixtures">Add fixture</h3>
       <div class="card admin-fxcard" style="margin-bottom:24px">
         <div class="seg" style="margin-bottom:14px;max-width:360px">
           <button type="button" data-fxkind="real" class="on">Real match (90 min)</button>
@@ -1905,63 +2021,20 @@ async function renderAdmin(M) {
         <button class="btn ghost" id="fxAddBtn" style="width:auto">Add fixture</button>
       </div>
 
-      <h3>All matches — real-time, straight from the server (${matches.length})</h3>
+      <h3 id="sec-matches">All matches — real-time, straight from the server (${matches.length})</h3>
+      <input class="inp" id="qMatches" placeholder="Search matches — team, league, sport…" style="margin-bottom:10px;max-width:420px">
       <div class="tablewrap admin-matches" style="margin-bottom:24px"><table><thead><tr><th>Status</th><th>Sport / League</th><th>Match</th><th>Score</th><th>Minute</th><th>Kickoff</th><th>Actions</th></tr></thead>
-      <tbody>${sortedMatches.map(m => `<tr>
-        <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.verified ? '<span class="tag won" style="margin-left:4px">✓ Verified</span>' : ''}${m.kind === 'fifa' ? '<span class="tag" style="margin-left:4px">FIFA</span>' : ''}</td>
-        <td data-label="Sport / League">${esc(m.sport)} · ${esc(m.league)}</td>
-        <td data-label="Match">${esc(m.home)} v ${esc(m.away)}</td>
-        <td data-label="Score" class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}</td>
-        <td data-label="Minute" class="num">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : '—')}</td>
-        <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
-        <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
-          <div class="admin-actionrow">
-            ${m.status === 'upcoming' ? `<button class="btn ghost sm" data-start-now="${m.id}">Start now</button>` : ''}
-            ${m.status === 'live' ? `<button class="btn ghost sm" data-inc="${m.id}" data-inc-side="home">+1 home</button>
-            <button class="btn ghost sm" data-inc="${m.id}" data-inc-side="away">+1 away</button>` : ''}
-            <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
-            <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
-          </div>
-          <div class="admin-actionrow" style="margin-top:6px">
-            <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
-            <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
-            <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
-          </div>
-          ${m.sport === 'football' && m.live ? `
-          <div class="admin-actionrow" style="margin-top:6px">
-            <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
-            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>+HT added time</button>
-            <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
-            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">+FT added time</button>
-          </div>` : ''}`}</td>
-      </tr>`).join('')}</tbody></table></div>
+      <tbody id="matchesTbody">${matchRowsHtml(sortedMatches)}</tbody></table></div>
 
-      <h3>Users</h3>
+      <h3 id="sec-users">Users</h3>
+      <input class="inp" id="qUsers" placeholder="Search users — name or email…" style="margin-bottom:10px;max-width:420px">
       <div class="tablewrap" style="margin-bottom:24px"><table><thead><tr><th>User</th><th>Balance</th><th>Lifetime wagered</th><th>KYC</th><th>Admin</th><th>Locked until</th><th>Actions</th></tr></thead>
-      <tbody>${users.map(u => `<tr>
-        <td data-label="User">${esc(u.name)}<br><span style="color:var(--dim)">${esc(u.email)}</span></td>
-        <td data-label="Balance" class="num">${fmt(u.balance)}</td>
-        <td data-label="Lifetime wagered" class="num">${fmt(u.lifetime_wagered || 0)}</td>
-        <td data-label="KYC">${u.kyc_verified ? '<span class="tag won">Verified</span>' : '<span class="tag">Pending</span>'}</td>
-        <td data-label="Admin">${u.is_admin ? '<span class="tag open">Admin</span>' : '—'}</td>
-        <td data-label="Locked until">${u.lock_until && u.lock_until > Date.now() ? fmtBeirut(u.lock_until) : '—'}</td>
-        <td data-label="Actions">
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn ghost sm" data-toggle-admin="${u.id}">${u.is_admin ? 'Revoke admin' : 'Make admin'}</button>
-            <button class="btn ghost sm" data-lock-user="${u.id}">Lock 24h</button>
-          </div>
-        </td>
-      </tr>`).join('')}</tbody></table></div>
+      <tbody id="usersTbody">${userRowsHtml(users)}</tbody></table></div>
 
-      <h3>All bets (every user) — with each user's current balance</h3>
-      <div class="tablewrap"><table><thead><tr><th>Time</th><th>User</th><th>Balance now</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout / returned</th><th>Status</th></tr></thead>
-      <tbody>${bets.map(b => {
-        const u = users.find(x => x.email === b.userEmail);
-        return `<tr><td data-label="Time">${fmtBeirut(b.placed)}</td><td data-label="User">${esc(b.userName)}<br><span style="color:var(--dim)">${esc(b.userEmail)}</span></td>
-        <td data-label="Balance now" class="num">${u ? fmt(u.balance) : '—'}</td>
-        <td data-label="Selections">${b.legs.map(l => esc(l.selName) + ' · ' + esc(l.matchName)).join('<br>')}</td><td data-label="Stake" class="num">${fmt(b.stake)}</td><td data-label="Odds" class="num">${fmtOdds(b.odds)}</td>
-        <td data-label="Payout / returned" class="num">${fmt(b.status === 'open' ? b.payout : (b.returned || 0))}</td><td data-label="Status"><span class="tag ${b.status}">${b.status}</span></td></tr>`;
-      }).join('')}</tbody></table></div>`;
+      <h3 id="sec-bets">All bets (every user) — with each user's current balance</h3>
+      <input class="inp" id="qBets" placeholder="Search bets — user, email, selection…" style="margin-bottom:10px;max-width:420px">
+      <div class="tablewrap"><table><thead><tr><th>Time</th><th>User</th><th>Balance now</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout / returned</th><th>Status</th><th>Admin</th></tr></thead>
+      <tbody id="betsTbody">${betRowsHtml(bets, users)}</tbody></table></div>`;
 
     $('#cfgSaveBtn').onclick = async () => {
       try {
@@ -2009,46 +2082,102 @@ async function renderAdmin(M) {
         renderAdmin(M);
       } catch (err) { toast('Could not add fixture', err.message, 'bad'); }
     };
-    $$('[data-force-score]').forEach(b => b.onclick = async () => {
-      const id = b.dataset.forceScore;
-      const home = +$(`[data-fs-home="${id}"]`).value || 0, away = +$(`[data-fs-away="${id}"]`).value || 0;
-      try { await api('POST', `/api/admin/matches/${id}/force-score`, { home, away }); toast('Score set', `${home} – ${away}`, 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not set score', err.message, 'bad'); }
+    // A sticky sub-nav for jumping straight to a section on this long page —
+    // scrollIntoView on the main scroller rather than a real anchor link, so
+    // it works the same inside #main's own scroll box on mobile and desktop.
+    $$('[data-jump]', $('#adminSubnav')).forEach(b => b.onclick = () => {
+      const el = document.getElementById(b.dataset.jump);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-    $$('[data-start-now]').forEach(b => b.onclick = async () => {
-      try { await api('POST', `/api/admin/matches/${b.dataset.startNow}/start-now`, {}); toast('Match started', 'Kicked off immediately.', 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not start match', err.message, 'bad'); }
-    });
-    $$('[data-inc]').forEach(b => b.onclick = async () => {
-      try { await api('POST', `/api/admin/matches/${b.dataset.inc}/increment`, { side: b.dataset.incSide }); toast('Goal added', b.dataset.incSide === 'home' ? 'Home +1' : 'Away +1', 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not update score', err.message, 'bad'); }
-    });
-    $$('[data-suspend-match]').forEach(b => b.onclick = async () => {
-      try { await api('POST', `/api/admin/matches/${b.dataset.suspendMatch}/suspend`, { ms: 5000 }); toast('Match suspended', '5 seconds', 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not suspend', err.message, 'bad'); }
-    });
-    $$('[data-end-match]').forEach(b => b.onclick = async () => {
-      if (!confirm('End this match now and settle all open bets on it?')) return;
-      try { await api('POST', `/api/admin/matches/${b.dataset.endMatch}/end`, {}); toast('Match ended', 'Open bets on it have been settled.', 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not end match', err.message, 'bad'); }
-    });
-    $$('[data-added-time]').forEach(b => b.onclick = async () => {
-      const id = b.dataset.addedTime, half = b.dataset.atHalf;
-      const minutes = +$(`[data-at-${half.toLowerCase()}="${id}"]`).value || 0;
-      try {
-        await api('POST', `/api/admin/matches/${id}/added-time`, { half, minutes });
-        toast('Added time set', `${half === 'HT' ? '1st' : '2nd'} half +${minutes}'`, 'ok');
-        renderAdmin(M);
-      } catch (err) { toast('Could not set added time', err.message, 'bad'); }
-    });
-    $$('[data-toggle-admin]').forEach(b => b.onclick = async () => {
-      try { await api('POST', `/api/admin/users/${b.dataset.toggleAdmin}/toggle-admin`, {}); renderAdmin(M); }
-      catch (err) { toast('Could not update admin status', err.message, 'bad'); }
-    });
-    $$('[data-lock-user]').forEach(b => b.onclick = async () => {
-      if (!confirm('Lock this user out for 24 hours?')) return;
-      try { await api('POST', `/api/admin/users/${b.dataset.lockUser}/lock`, { hours: 24 }); toast('User locked', '24 hours', 'ok'); renderAdmin(M); }
-      catch (err) { toast('Could not lock user', err.message, 'bad'); }
+    // Client-side search/filter for each table — everything's already fetched,
+    // so this just re-renders the affected tbody from the full list filtered
+    // by the query, with no extra round-trip and no full-page re-render (so
+    // typing in one search box never disturbs anything else on the page).
+    const norm = s => String(s || '').toLowerCase();
+    $('#qMatches').oninput = (e) => {
+      const q = norm(e.target.value);
+      const filtered = !q ? sortedMatches : sortedMatches.filter(m => norm(m.sport).includes(q) || norm(m.league).includes(q) || norm(m.home).includes(q) || norm(m.away).includes(q));
+      $('#matchesTbody').innerHTML = matchRowsHtml(filtered);
+    };
+    $('#qUsers').oninput = (e) => {
+      const q = norm(e.target.value);
+      const filtered = !q ? users : users.filter(u => norm(u.name).includes(q) || norm(u.email).includes(q));
+      $('#usersTbody').innerHTML = userRowsHtml(filtered);
+    };
+    $('#qBets').oninput = (e) => {
+      const q = norm(e.target.value);
+      const filtered = !q ? bets : bets.filter(b => norm(b.userName).includes(q) || norm(b.userEmail).includes(q) || b.legs.some(l => norm(l.selName).includes(q) || norm(l.matchName).includes(q)));
+      $('#betsTbody').innerHTML = betRowsHtml(filtered, users);
+    };
+    // Every admin action below is wired as a single delegated listener on
+    // #adminBody (rather than one .onclick per button) so it keeps working
+    // after the search boxes above replace a tbody's rows — those new rows'
+    // buttons are covered automatically since the listener lives on their
+    // ancestor, not on the buttons themselves.
+    $('#adminBody').addEventListener('click', async (e) => {
+      const b = (sel) => e.target.closest(sel);
+      let t;
+      if ((t = b('[data-force-score]'))) {
+        const id = t.dataset.forceScore;
+        const home = +$(`[data-fs-home="${id}"]`).value || 0, away = +$(`[data-fs-away="${id}"]`).value || 0;
+        try { await api('POST', `/api/admin/matches/${id}/force-score`, { home, away }); toast('Score set', `${home} – ${away}`, 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not set score', err.message, 'bad'); }
+      } else if ((t = b('[data-set-final]'))) {
+        const id = t.dataset.setFinal;
+        const home = $(`[data-tgt-home="${id}"]`).value, away = $(`[data-tgt-away="${id}"]`).value;
+        if (home === '' || away === '') return toast('Missing score', 'Enter both a home and away goal count.', 'bad');
+        try {
+          await api('POST', `/api/admin/matches/${id}/set-final-score`, { home: +home, away: +away });
+          toast('Final score set', `Will finish ${home} – ${away} — goals play out naturally from here.`, 'ok');
+          renderAdmin(M);
+        } catch (err) { toast('Could not set final score', err.message, 'bad'); }
+      } else if ((t = b('[data-set-ht]'))) {
+        const id = t.dataset.setHt;
+        const home = $(`[data-tgtht-home="${id}"]`).value, away = $(`[data-tgtht-away="${id}"]`).value;
+        if (home === '' || away === '') return toast('Missing score', 'Enter both a home and away goal count.', 'bad');
+        try {
+          await api('POST', `/api/admin/matches/${id}/set-ht-score`, { home: +home, away: +away });
+          toast('Half-time target set', `Will be ${home} – ${away} at HT.`, 'ok');
+          renderAdmin(M);
+        } catch (err) { toast('Could not set half-time score', err.message, 'bad'); }
+      } else if ((t = b('[data-start-now]'))) {
+        try { await api('POST', `/api/admin/matches/${t.dataset.startNow}/start-now`, {}); toast('Match started', 'Kicked off immediately.', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not start match', err.message, 'bad'); }
+      } else if ((t = b('[data-inc]'))) {
+        try { await api('POST', `/api/admin/matches/${t.dataset.inc}/increment`, { side: t.dataset.incSide }); toast('Goal added', t.dataset.incSide === 'home' ? 'Home +1' : 'Away +1', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not update score', err.message, 'bad'); }
+      } else if ((t = b('[data-suspend-match]'))) {
+        try { await api('POST', `/api/admin/matches/${t.dataset.suspendMatch}/suspend`, { ms: 5000 }); toast('Match suspended', '5 seconds', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not suspend', err.message, 'bad'); }
+      } else if ((t = b('[data-end-match]'))) {
+        if (!confirm('End this match now and settle all open bets on it?')) return;
+        try { await api('POST', `/api/admin/matches/${t.dataset.endMatch}/end`, {}); toast('Match ended', 'Open bets on it have been settled.', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not end match', err.message, 'bad'); }
+      } else if ((t = b('[data-added-time]'))) {
+        const id = t.dataset.addedTime, half = t.dataset.atHalf;
+        const minutes = +$(`[data-at-${half.toLowerCase()}="${id}"]`).value || 0;
+        try {
+          await api('POST', `/api/admin/matches/${id}/added-time`, { half, minutes });
+          toast('Added time set', `${half === 'HT' ? '1st' : '2nd'} half +${minutes}'`, 'ok');
+          renderAdmin(M);
+        } catch (err) { toast('Could not set added time', err.message, 'bad'); }
+      } else if ((t = b('[data-toggle-admin]'))) {
+        try { await api('POST', `/api/admin/users/${t.dataset.toggleAdmin}/toggle-admin`, {}); renderAdmin(M); }
+        catch (err) { toast('Could not update admin status', err.message, 'bad'); }
+      } else if ((t = b('[data-lock-user]'))) {
+        if (!confirm('Lock this user out for 24 hours?')) return;
+        try { await api('POST', `/api/admin/users/${t.dataset.lockUser}/lock`, { hours: 24 }); toast('User locked', '24 hours', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not lock user', err.message, 'bad'); }
+      } else if ((t = b('[data-void-bet]'))) {
+        if (!confirm('Void this bet and refund the full stake?')) return;
+        try { await api('POST', `/api/admin/bets/${t.dataset.voidBet}/void`, {}); toast('Bet voided', 'Stake refunded.', 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not void bet', err.message, 'bad'); }
+      } else if ((t = b('[data-settle-bet]'))) {
+        const result = t.dataset.settleResult;
+        if (!confirm(`Force this bet to ${result}?`)) return;
+        try { await api('POST', `/api/admin/bets/${t.dataset.settleBet}/settle`, { result }); toast('Bet settled', `Marked ${result}.`, 'ok'); renderAdmin(M); }
+        catch (err) { toast('Could not settle bet', err.message, 'bad'); }
+      }
     });
     M.scrollTop = savedScroll;
   } catch (err) { $('#adminBody').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }

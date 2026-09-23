@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const db = require('./db');
 const engine = require('./engine');
+const apifootball = require('./apifootball');
 // Defensive fallback: if a deploy ever runs this routes.js against an older
 // engine.js that doesn't export CORRECT_SCORES yet (e.g. a partial/stale
 // deploy where not every file updated together), don't crash the whole
@@ -151,21 +152,7 @@ function legResult(leg, m) {
   }
   return 'void';
 }
-function simResultText(m) {
-  const [h, a] = m.sport === 'tennis' ? m.sets : m.score;
-  if (h > a) return m.home + ' won';
-  if (a > h) return m.away + ' won';
-  return 'Draw';
-}
-function recordSimHistory(m) {
-  if (!m.sim || !m.simOwner) return;
-  const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
-  db.prepare('INSERT INTO sim_history (id, user_id, sport, home, away, final_score, result, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(uid('sh'), m.simOwner, m.sport, m.home, m.away, scoreLine.join('–'), simResultText(m), now());
-}
 function settleMatch(m) {
-  recordSimHistory(m);
-  if (m.sim) promoteSimQueue(); // a slot may have just freed up for someone queued
   const openBets = db.prepare("SELECT * FROM bets WHERE status = 'open'").all();
   for (const row of openBets) {
     const legs = JSON.parse(row.legs);
@@ -211,7 +198,15 @@ function startChatAmbience() {
   }, 15000);
 }
 
-function startEngine() { engine.startEngine(settleMatch); startChatAmbience(); }
+function startEngine() {
+  engine.startEngine(settleMatch);
+  startChatAmbience();
+  // The real, automatic data feed — every match it creates carries
+  // apiSourced+verified, and engine.js's own simulation clock/pricer both
+  // explicitly skip anything marked apiSourced, so the two systems never
+  // fight over the same match.
+  apifootball.start(settleMatch);
+}
 
 // ---------- auth middleware ----------
 function requireAuth(req) {
@@ -346,38 +341,16 @@ route('POST', '/api/me/exclude', (req, res, p, body) => {
 }, { auth: true });
 
 route('GET', '/api/matches', (req, res, p, body, query) => {
-  // User-started FIFA simulations are excluded from the regular sport board —
-  // they live in their own section (see /api/sims) so they don't clutter the
-  // real schedule, even though they run through the exact same engine.
-  // A just-finished match also stays on the board briefly (see
-  // listRecentlyEnded()) instead of vanishing the instant it ends, so there's
-  // a moment to actually see "Full time" before another live match — which
-  // maybeKickoff() in engine.js is already backfilling every tick — takes
-  // its place, rather than the board jump-cutting between matches.
+  // Every match returned here is now a real, verified fixture (the FIFA
+  // simulation board and the procedurally-simulated filler engine have both
+  // been removed — see the "only real matches" rework). A just-finished
+  // match still stays on the board briefly (see listRecentlyEnded()) instead
+  // of vanishing the instant it ends, so there's a moment to actually see
+  // "Full time" before it drops off.
   const sport = query.sport || undefined;
-  const list = [...engine.listMatches({ sport, ended: false }), ...engine.listRecentlyEnded(sport)].filter((m) => !m.sim);
+  const list = [...engine.listMatches({ sport, ended: false }), ...engine.listRecentlyEnded(sport)];
   json(res, 200, { matches: list });
 }, { auth: true });
-
-// ---------- FIFA simulation queue ----------
-// In-memory only — a restart clears it. That's an accepted trade-off here:
-// a `sim_queue` table would survive restarts, but nothing else about a sim
-// (or the live/match engine state in general) survives one either, so a
-// queued *request* not surviving one is no worse than the running sims
-// themselves not surviving it. FIFO per nothing-in-particular (global order),
-// promoted per-user as that user's own running-sim count drops below the cap.
-const simQueue = []; // { id, userId, sport, createdAt }
-function promoteSimQueue() {
-  for (let i = 0; i < simQueue.length; i++) {
-    const q = simQueue[i];
-    const running = engine.listSims().filter((m) => m.simOwner === q.userId).length;
-    if (running < engine.MAX_SIMS_PER_USER) {
-      simQueue.splice(i, 1);
-      engine.startSim(q.userId, q.sport);
-      i--; // a slot may have freed for more than one queued entry this round
-    }
-  }
-}
 
 // League standings — computed purely from ENDED matches already in the
 // `matches` table, no new schema. Football/soccer-style scoring (3/1/0); every
@@ -405,45 +378,6 @@ route('GET', '/api/standings', (req, res, p, body, query) => {
   }
   const list = Object.values(table).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf);
   json(res, 200, { sport, league, table: list });
-}, { auth: true });
-
-route('GET', '/api/sims', (req, res) => {
-  json(res, 200, {
-    sims: engine.listSims(), maxPerUser: engine.MAX_SIMS_PER_USER,
-    mine: engine.listSims().filter((m) => m.simOwner === req.user.id).length,
-    queuedMine: simQueue.filter((q) => q.userId === req.user.id).length,
-  });
-}, { auth: true });
-
-route('POST', '/api/sims/start', (req, res, p, body) => {
-  const sport = String(body?.sport || 'football');
-  const r = engine.startSim(req.user.id, sport);
-  if (r.error) {
-    // Specifically the "at the cap" error — queue instead of rejecting.
-    if (r.error.includes('at once')) {
-      simQueue.push({ id: uid('q'), userId: req.user.id, sport, createdAt: now() });
-      const position = simQueue.filter((q) => q.userId === req.user.id).length;
-      return json(res, 200, { queued: true, position, message: 'Queued — will start automatically when a slot frees up.' });
-    }
-    return json(res, 400, { error: r.error });
-  }
-  json(res, 200, { match: r.match });
-}, { auth: true });
-
-route('POST', '/api/sims/:id/abandon', (req, res, p) => {
-  const m = engine.getMatch(p.id);
-  if (!m || !m.sim) return json(res, 404, { error: 'Simulation not found.' });
-  if (m.simOwner !== req.user.id && !req.user.is_admin) return json(res, 403, { error: 'You can only abandon your own simulation.' });
-  if (m.ended) return json(res, 400, { error: 'This simulation has already ended.' });
-  m.ended = true; m.live = false; m.endedAt = now();
-  engine.saveMatch(m);
-  settleMatch(m);
-  json(res, 200, { match: m });
-}, { auth: true });
-
-route('GET', '/api/sims/history', (req, res) => {
-  const rows = db.prepare('SELECT * FROM sim_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.user.id);
-  json(res, 200, { history: rows.map((r) => ({ id: r.id, sport: r.sport, home: r.home, away: r.away, finalScore: r.final_score, result: r.result, t: r.created_at })) });
 }, { auth: true });
 
 route('GET', '/api/matches/:id', (req, res, p) => {
@@ -667,8 +601,7 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
       id: m.id, sport: m.sport, league: m.league, home: m.home, away: m.away,
       score: m.score, minute: m.minute, live: m.live, ended: m.ended,
       verified: !!m.verified, start: m.start,
-      sim: !!m.sim, adminAdded: !!m.adminAdded,
-      kind: m.sim ? 'fifa' : 'real',
+      adminAdded: !!m.adminAdded, apiSourced: !!m.apiSourced,
       status: m.ended ? 'finished' : (m.live ? 'live' : 'upcoming'),
       // Needed by the admin page's clock formatting (45+N'/90+N' once
       // stoppage time is added) and its added-time inputs — without these,
@@ -736,8 +669,13 @@ route('GET', '/api/admin/config', (req, res) => {
 // admins can still type anything free-form (any of the 120+ real leagues,
 // or a brand new one), this just suggests the ones already known to the
 // engine so most of the time they don't have to type a roster from scratch.
-route('GET', '/api/admin/teams', (req, res) => {
-  json(res, 200, { teams: engine.TEAMS, sports: engine.SPORTS.map((s) => s.id) });
+// Lets the admin dashboard show whether the real automatic data feed is
+// actually authenticating and pulling fixtures, instead of that being
+// invisible/silent — especially important right after deploying with a new
+// API_FOOTBALL_KEY, since a bad key fails silently by design (see
+// apifootball.js's "show nothing for the gap" behavior).
+route('GET', '/api/admin/apifootball/status', (req, res) => {
+  json(res, 200, apifootball.getStatus());
 }, { auth: true, admin: true });
 
 route('POST', '/api/admin/config', (req, res, p, body) => {
@@ -867,94 +805,10 @@ route('POST', '/api/admin/matches/:id/added-time', (req, res, p, body) => {
   json(res, 200, { match: m });
 }, { auth: true, admin: true });
 
-// Kickoff can be given either as "starts in N minutes" (quick/relative) or as
-// an explicit Beirut-local date + time (kickoffDate 'YYYY-MM-DD' + kickoffTime
-// 'HH:MM', both interpreted as Asia/Beirut, fixed UTC+3 — see engine.js's
-// beirutWallToUtc()). Whichever is given, the fixture goes live automatically
-// the moment its `start` timestamp is reached — engine.js's maybeKickoff()
-// already polls for that on every 3s tick, no special-casing needed here.
-// Optional oddsHome/oddsDraw/oddsAway (football only) let the admin set the
-// 1X2 price directly; they're de-vigged into fair probabilities and solved
-// back into the match's underlying [home,away] attack strengths (see
-// strengthsForOdds() in engine.js) so every other market (O/U, BTTS,
-// handicap, half-time) stays internally consistent with them and still
-// updates live once the match kicks off, rather than freezing a raw number.
-route('POST', '/api/admin/fixtures', (req, res, p, body) => {
-  const {
-    sport, league, home, away, startInMinutes, kickoffDate, kickoffTime,
-    oddsHome, oddsDraw, oddsAway, kind, verified,
-  } = body || {};
-  if (!sport || !league || !home || !away) return json(res, 400, { error: 'sport, league, home and away are required.' });
-  const fxKind = kind === 'fifa' ? 'fifa' : 'real';
-  const m = engine.makeMatch(sport, league, String(home), String(away), false);
-  if (kickoffDate && kickoffTime) {
-    const [y, mo, d] = String(kickoffDate).split('-').map(Number);
-    const [h, mi] = String(kickoffTime).split(':').map(Number);
-    if (!y || !mo || !d || Number.isNaN(h) || Number.isNaN(mi)) return json(res, 400, { error: 'Invalid kickoff date/time.' });
-    m.start = engine.beirutWallToUtc(y, mo, d, h, mi);
-  } else {
-    m.start = now() + (Math.max(0, +startInMinutes || 0)) * 60000;
-  }
-  if (sport === 'football' && oddsHome && oddsDraw && oddsAway) {
-    const oh = +oddsHome, od = +oddsDraw, oa = +oddsAway;
-    if (oh > 1 && od > 1 && oa > 1) {
-      const str = engine.strengthsForOdds(oh, od, oa);
-      if (str) {
-        m.str = str;
-        engine.priceMatch(m);
-        // Pin the pregame 1X2 line to exactly what was typed — the solver
-        // above gets every other market internally consistent with it, but
-        // at very lopsided prices its grid resolution can land a little off
-        // the exact number. Live play reprices everything normally once the
-        // match kicks off.
-        if (m.markets['1X2']) {
-          const sel = m.markets['1X2'].sel;
-          sel.find((s) => s.k === '1').o = oh;
-          sel.find((s) => s.k === 'X').o = od;
-          sel.find((s) => s.k === '2').o = oa;
-        }
-      }
-    }
-  }
-  // `adminAdded` marks every fixture the admin schedules here (either kind),
-  // so maybeKickoff()'s "never let a league go dark" fallback never force-
-  // starts it early — the admin's chosen kickoff time is always respected.
-  m.adminAdded = true;
-  if (fxKind === 'fifa') {
-    // FIFA / quick-sim fixture: shown on the sims board (not the normal real
-    // matches board), runs at a compressed pace (~8 real minutes for a full
-    // 90-minute football match), and is never treated as verified.
-    m.sim = true;
-    m.verified = false;
-    m.secPerMin = engine.FIFA_SEC_PER_MIN;
-  } else {
-    // Real fixture: shown on the normal board. Only marked "✓ Verified" (and
-    // therefore locked to admin-controlled scoring, per item 2) when the
-    // admin explicitly checks that box — otherwise it plays out like any
-    // other real-board match. Verified real fixtures run at true real-world
-    // speed (a 90-minute match really takes ~90 real minutes).
-    m.sim = false;
-    m.verified = !!verified;
-    m.secPerMin = m.verified ? engine.REAL_SEC_PER_MIN : undefined;
-  }
-  engine.saveMatch(m);
-  json(res, 200, { match: m });
-}, { auth: true, admin: true });
-
-// Immediately kick off a scheduled (not-yet-live) fixture, regardless of its
-// programmed kickoff time — the admin dashboard's "Start now" action.
-route('POST', '/api/admin/matches/:id/start-now', (req, res, p) => {
-  const m = engine.getMatch(p.id);
-  if (!m) return json(res, 404, { error: 'Match not found.' });
-  if (m.live || m.ended) return json(res, 400, { error: 'Match is already live or ended.' });
-  engine.kickOffFresh(m);
-  engine.saveMatch(m);
-  json(res, 200, { match: m });
-}, { auth: true, admin: true });
-
-// Bump one side's score by exactly 1 — the admin dashboard's quick "+1 home"
-// / "+1 away" buttons, for fast manual scoring of a verified/admin-locked
-// live match without typing the full new score.
+// Bump one side's score by exactly 1 — kept as an emergency correction tool
+// (reachable directly via the API, no longer surfaced in the admin UI now
+// that every match on the site is created and scored automatically by the
+// real data feed — see apifootball.js). Not used in normal operation.
 route('POST', '/api/admin/matches/:id/increment', (req, res, p, body) => {
   const m = engine.getMatch(p.id);
   if (!m) return json(res, 404, { error: 'Match not found.' });

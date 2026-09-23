@@ -261,6 +261,7 @@ a{color:var(--accent)}
 .sim-card .sc-live i{width:6px;height:6px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px var(--down-soft);animation:pulse 1.4s infinite}
 .sim-card .sc-teams{font-size:14.5px;font-weight:600;font-family:var(--mono)}
 .odds{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.odds-pending{align-self:center;color:var(--dim);font-size:12px;font-style:italic;padding:8px 12px;white-space:nowrap}
 .o{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;background:var(--raised);border:1px solid var(--line2);border-radius:10px;
   transition:transform .12s,box-shadow .12s,background .12s,border-color .12s}
 .o:hover{background:var(--raised2);border-color:var(--gold2);transform:translateY(-1px);box-shadow:0 6px 14px -5px rgba(0,0,0,.5)}
@@ -360,10 +361,14 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
    desktop or phone, no matter how many actions a given row has. */
 .admin-actionrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .admin-num{width:56px;flex:none;padding:8px 6px;text-align:center}
-.admin-fxcard .row{align-items:flex-end}
 /* Sticky quick-jump bar for the admin dashboard — it's a long page (config,
    fixtures, matches, users, bets), and on a phone especially there was no
    fast way to reach any section but scrolling past everything above it. */
+.admin-verified-table table{border:1px solid rgba(240,185,11,.35);border-radius:var(--r-lg);overflow:hidden}
+.admin-verified-table tr:not(:last-child) td{border-bottom:1px solid rgba(240,185,11,.14)}
+@media (max-width:640px){
+  .admin-verified-table:not(.compact-scroll) tr{border-color:rgba(240,185,11,.35);background:linear-gradient(180deg,rgba(240,185,11,.05),transparent 60%)}
+}
 .admin-subnav{position:sticky;top:0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;background:var(--ink);padding:8px 0 14px;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .admin-subnav button{padding:7px 13px;border-radius:20px;background:var(--raised);color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}
 .admin-subnav button:hover{background:var(--raised2);color:var(--text)}
@@ -605,16 +610,15 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
     <button>🎾 Tennis</button>
     <button>🏀 Basketball</button>
     <button>🏈 American Football</button>
-    <button>🎮 FIFA Simulation</button>
   </nav>
   <div class="hero2" id="hero2">
     <div class="hero2-text">
       <h2>Every match, <span class="hi">priced live</span>, settled the moment it ends.</h2>
-      <p class="lead">Football, basketball, tennis and NFL fixtures — pulled from real league schedules, priced by a server-side engine that reprices every few seconds and locks a market the instant the outcome is decided.</p>
+      <p class="lead">Real football fixtures, pulled automatically from a live sports data feed with real scores and real odds — priced by a server-side engine that reprices every few seconds and locks a market the instant the outcome is decided. No simulations, no filler matches.</p>
       <div class="herostats" id="herofeats">
-        <div class="hs"><b>4+</b><span>Live matches now</span></div>
-        <div class="hs"><b>4</b><span>Sports covered</span></div>
-        <div class="hs"><b>3s</b><span>Odds suspension after a goal</span></div>
+        <div class="hs"><b>Real</b><span>Fixtures &amp; live scores</span></div>
+        <div class="hs"><b>Auto</b><span>Synced from a live data feed</span></div>
+        <div class="hs"><b>Brief</b><span>Odds suspension after a goal</span></div>
       </div>
       <div class="herocta">
         <button class="btn" style="width:auto" data-authgo="1">Create free account</button>
@@ -786,7 +790,7 @@ async function api(method, path, body) {
   return data;
 }
 
-let S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], sims: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
+let S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
 
 const MAX_VISIBLE_TOASTS = 4;
 function toast(title, body, kind, nav) {
@@ -800,7 +804,7 @@ function toast(title, body, kind, nav) {
   el.innerHTML = `<b>${esc(title)}</b>${body ? `<p>${esc(body)}</p>` : ''}`;
   if (nav) {
     el.addEventListener('click', () => {
-      S.view = (nav.type === 'sim' ? 'match' : 'match'); S.watchId = nav.id; renderRoute();
+      S.view = 'match'; S.watchId = nav.id; renderRoute();
       el.remove();
     });
   }
@@ -967,7 +971,7 @@ $('#verifyBtn').onclick = async () => {
 $('#logoutBtn').onclick = () => {
   TOKEN = null; localStorage.removeItem('sb_token'); localStorage.removeItem('sb_slip');
   clearInterval(pollTimer); clearInterval(chatTimer);
-  S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], sims: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
+  S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
   prevBetStatus = {}; prevScoreByMatch = {};
   chatUnread = 0; chatBooted = false; updateChatBadge();
   $('#app').classList.add('hide'); $('#auth').classList.remove('hide');
@@ -979,14 +983,12 @@ const NAV = [
   { g: 'Sports' },
   { id: 'football', t: 'Football', ic: '⚽' }, { id: 'basketball', t: 'Basketball', ic: '🏀' },
   { id: 'tennis', t: 'Tennis', ic: '🎾' }, { id: 'nfl', t: 'NFL', ic: '🏈' },
-  { id: 'sim', t: 'FIFA simulation', ic: '🎮' },
   { g: 'Account' },
   { id: 'wallet', t: 'Wallet', ic: '◈' }, { id: 'bets', t: 'My bets', ic: '▤' },
   { id: 'transactions', t: 'Transactions', ic: '⇄' }, { id: 'activity', t: 'Activity', ic: '◷' },
   { id: 'profile', t: 'Profile', ic: '☉' },
 ];
 function go(v) {
-  if (v !== 'sim') simViewLoaded = false;
   if (v !== 'match') mdLastId = null;
   S.view = v; renderNav(); renderRoute(); $('#main').scrollTop = 0; $('#rail').classList.remove('open');
 }
@@ -995,24 +997,22 @@ function renderNav() {
   $('#rail').innerHTML = items.map(n => n.g ? `<h4>${n.g}</h4>` :
     `<button class="navb ${S.view === n.id ? 'on' : ''}" data-go="${n.id}"><span style="width:16px">${n.ic}</span>${n.t}</button>`).join('');
   // Plain icon-only bar (no text labels) — a home shortcut, a one-tap "Live"
-  // shortcut straight into the football board's Live tab, FIFA, My bets, and
-  // the slip drawer. Wallet moved off this bar (it's one tap away in the
-  // side rail, and the balance is already always visible in the top bar) to
-  // keep this row to the same handful of icons a real sportsbook app's
-  // bottom nav uses instead of stacking a label under every one of them.
+  // shortcut straight into the football board's Live tab, My bets, and the
+  // slip drawer. Wallet moved off this bar (it's one tap away in the side
+  // rail, and the balance is already always visible in the top bar) to keep
+  // this row to the same handful of icons a real sportsbook app's bottom nav
+  // uses instead of stacking a label under every one of them.
   const sportViews = ['football', 'basketball', 'tennis', 'nfl'];
   const isLiveShortcut = sportViews.includes(S.view) && S.sportTab === 'live';
   const mtabBtn = (active, goId, ic, title, badge) => `<button class="${active ? 'on' : ''}" data-mtab="${goId}" title="${title}">${ic}${badge ? `<span class="mtab-badge">${badge}</span>` : ''}</button>`;
-  // Live counts surfaced right on the icons, so Home/Live/FIFA/My bets all
-  // carry the same "what's happening right now" signal instead of the count
-  // living only inside the Live tab you have to open first.
+  // Live counts surfaced right on the icons, so Home/Live/My bets all carry
+  // the same "what's happening right now" signal instead of the count living
+  // only inside the Live tab you have to open first.
   const liveMatchCount = S.matches.filter(m => m.live).length;
-  const liveFifaCount = S.sims.filter(m => m.live).length;
   const liveBetsCount = S.bets.filter(b => b.legs.some(l => { const m = findMatch(l.matchId); return m && m.live; })).length;
   $('#mtab').innerHTML = [
     mtabBtn(sportViews.includes(S.view) && !isLiveShortcut, 'home', '🏠', 'Home'),
     mtabBtn(isLiveShortcut, 'live', '🔴', 'Live now', liveMatchCount || null),
-    mtabBtn(S.view === 'sim', 'sim', '🎮', 'FIFA', liveFifaCount || null),
     mtabBtn(S.view === 'bets', 'bets', '📄', 'My bets', liveBetsCount || null),
   ].join('')
     // A dedicated "Slip" tab on mobile — the betslip column is hidden below
@@ -1058,12 +1058,7 @@ document.addEventListener('click', e => {
 });
 
 /* ============ BOARD ============ */
-// The Live/Upcoming FIFA tabs (see board()'s fifaList()) render matches that
-// live in S.sims, not S.matches — so anything that looks a match up by id
-// (adding a slip selection, refreshing odds, watching it) needs to check
-// both, or betting on a FIFA fixture from those tabs would silently fail to
-// find it.
-function findMatch(id) { return S.matches.find(m => m.id === id) || S.sims.find(m => m.id === id); }
+function findMatch(id) { return S.matches.find(m => m.id === id); }
 // Odds up/down flash: every board/match-detail re-render creates fresh button
 // elements (the page is rebuilt from an HTML string each poll), so a CSS
 // animation class only needs to be present at creation time to play once —
@@ -1129,9 +1124,13 @@ function matchRow(m, mainMkt) {
         <span>${esc(m.home)} ${m.live || m.ended ? `<b class="sc">${scoreLine[0]}</b>` : ''}</span>
         <span>${esc(m.away)} ${m.live || m.ended ? `<b class="sc">${scoreLine[1]}</b>` : ''}</span>
       </div>
-      <div class="m-meta">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? `<span class="clock">${clock}</span>` : fmtBeirut(m.start))} · ${Object.keys(m.markets).length} markets ${m.verified ? '<span class="tag verified" style="margin-left:4px">✓ Verified</span>' : ''}</div>
+      <div class="m-meta">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? `<span class="clock">${clock}</span>` : fmtBeirut(m.start))}${mkt ? ' · ' + Object.keys(m.markets).length + ' markets' : ''}</div>
     </div>
-    <div class="odds">${mkt.sel.map(s => oddsBtn(m, key, s)).join('')}${mkt.sel.length === 2 ? '<span></span>' : ''}</div>
+    ${mkt ? `<div class="odds">${mkt.sel.map(s => oddsBtn(m, key, s)).join('')}${mkt.sel.length === 2 ? '<span></span>' : ''}</div>`
+         // A real fixture the automatic feed hasn't published odds for yet
+         // (or a bookmaker doesn't cover) shows as an informational row
+         // instead of inventing a price — no fabricated market is ever shown.
+         : `<div class="odds-pending">Odds not yet available</div>`}
   </div>`;
 }
 function leagueGroups(list, mainMkt) {
@@ -1142,64 +1141,26 @@ function leagueGroups(list, mainMkt) {
       ${ms.map(m => matchRow(m, mainMkt)).join('')}
     </section>`).join('');
 }
-// FIFA fixtures (m.sim) never appear in S.matches — the normal board
-// deliberately excludes them (see /api/matches) — so the dedicated
-// "Live · FIFA" / "Upcoming · FIFA" tabs read from S.sims instead, which
-// carries every FIFA/sim fixture for every user (populated alongside
-// S.matches on each poll — see doRefreshAll()). An admin-scheduled FIFA
-// fixture (kind:'fifa' in Add fixture) has a real kickoff time and can be
-// "upcoming" here; a user's own ad-hoc simulation always starts live
-// instantly, so it only ever shows up under "Live · FIFA".
-function fifaList(sport, liveWanted) {
-  return S.sims.filter(m => m.sport === sport && (liveWanted ? (m.live || m.ended) : (!m.live && !m.ended))).sort((a, b) => a.start - b.start);
-}
+// Every match on the board is now a real, verified fixture (see the "only
+// real matches" rework) — so the board is just a live/upcoming split, no
+// separate "verified" cross-cut needed any more since that's no longer a
+// distinguishing property.
 function board(sport, mode) {
   const mainMkt = sport === 'football' ? '1X2' : 'ML';
-  if (mode === 'live-fifa' || mode === 'upcoming-fifa') {
-    const list = fifaList(sport, mode === 'live-fifa');
-    if (!list.length) return `<div class="empty">No ${mode === 'live-fifa' ? 'live' : 'upcoming'} FIFA ${sport} matches right now.</div>`;
-    return leagueGroups(list, mainMkt);
-  }
-  if (mode === 'live-verified' || mode === 'upcoming-verified') {
-    const wantLive = mode === 'live-verified';
-    const list = S.matches.filter(m => m.sport === sport && m.verified && (wantLive ? (m.live || m.ended) : (!m.live && !m.ended))).sort((a, b) => a.start - b.start);
-    if (!list.length) return `<div class="empty">No ${wantLive ? 'live' : 'upcoming'} verified real ${sport} matches right now.</div>`;
-    return leagueGroups(list, mainMkt);
-  }
-  // 'verified' is a real-world fixture — a curated real match, or one an
-  // admin added by hand (both carry m.verified=true) — as opposed to the
-  // procedurally-simulated filler that keeps every board topped up. It's a
-  // cross-cut of live/upcoming, so it doesn't use the live/ended split the
-  // other two modes do.
-  const list = S.matches.filter(m => m.sport === sport && (
-    mode === 'verified' ? m.verified : (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended))
-  )).sort((a, b) => a.start - b.start);
-  if (!list.length) return `<div class="empty">No ${mode === 'live' ? 'live' : (mode === 'verified' ? 'verified real' : 'upcoming')} ${sport} matches right now.</div>`;
-  // On the plain Live tab, split verified real matches into their own
-  // clearly-labeled section above everything else instead of mixing them
-  // into the same league groups as the procedurally-simulated filler
-  // matches that keep the board topped up — otherwise a real result and a
-  // simulated one looked identical apart from a small inline badge.
-  if (mode === 'live') {
-    const verified = list.filter(m => m.verified), rest = list.filter(m => !m.verified);
-    return `
-      ${verified.length ? `<div class="board-section-h verified"><span class="tag verified">✓ Verified</span> Live real matches</div>${leagueGroups(verified, mainMkt)}` : ''}
-      ${rest.length ? `${verified.length ? '<div class="board-section-h">Other live matches</div>' : ''}${leagueGroups(rest, mainMkt)}` : ''}`;
+  const list = S.matches.filter(m => m.sport === sport && (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended)))
+    .sort((a, b) => a.start - b.start);
+  if (!list.length) {
+    return `<div class="empty">No ${mode === 'live' ? 'live' : 'upcoming'} ${sport} matches right now${sport !== 'football' ? ' — coming soon' : ''}.</div>`;
   }
   return leagueGroups(list, mainMkt);
 }
 function renderRoute() {
   const M = $('#main');
   if (['football', 'basketball', 'tennis', 'nfl'].includes(S.view)) {
-    M.innerHTML = `<div class="page-h"><h2 style="text-transform:capitalize">${S.view}</h2><p>Live, real-time-priced markets from the server</p></div>
+    M.innerHTML = `<div class="page-h"><h2 style="text-transform:capitalize">${S.view}</h2><p>Real fixtures only — live scores and odds pulled from a real sports data feed.</p></div>
       <div class="tabs tabs-wrap">
         <button class="${S.sportTab === 'live' ? 'on' : ''}" data-tab="live">Live</button>
         <button class="${S.sportTab === 'upcoming' ? 'on' : ''}" data-tab="upcoming">Upcoming</button>
-        <button class="${S.sportTab === 'verified' ? 'on' : ''}" data-tab="verified">✓ Verified real matches</button>
-        <button class="${S.sportTab === 'live-verified' ? 'on' : ''}" data-tab="live-verified">🔴 Live · Verified</button>
-        <button class="${S.sportTab === 'live-fifa' ? 'on' : ''}" data-tab="live-fifa">🔴 Live · FIFA</button>
-        <button class="${S.sportTab === 'upcoming-verified' ? 'on' : ''}" data-tab="upcoming-verified">Upcoming · Verified</button>
-        <button class="${S.sportTab === 'upcoming-fifa' ? 'on' : ''}" data-tab="upcoming-fifa">Upcoming · FIFA</button>
       </div>
       <div id="boardBody">${board(S.view, S.sportTab)}</div>`;
     $$('.tabs button').forEach(b => b.onclick = () => { S.sportTab = b.dataset.tab; renderRoute(); });
@@ -1209,64 +1170,11 @@ function renderRoute() {
   else if (S.view === 'activity') renderActivity(M);
   else if (S.view === 'admin') renderAdmin(M);
   else if (S.view === 'match') renderMatchDetail(M);
-  else if (S.view === 'sim') renderSim(M);
   else if (S.view === 'profile') renderProfile(M);
 }
 
-/* ============ FIFA SIMULATION ============ */
-let simViewLoaded = false; // reset to false on navigating away — see go()
-async function renderSim(M) {
-  const isRefresh = simViewLoaded;
-  simViewLoaded = true;
-  if (!isRefresh) M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture.</p></div><div class="empty">Loading…</div>`;
-  let sims, maxPerUser, mine, queuedMine;
-  try { ({ sims, maxPerUser, mine, queuedMine } = await api('GET', '/api/sims')); }
-  catch (err) { if (!isRefresh) M.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
-  if (S.view !== 'sim') return;
-  const sportBtn = (id, label, ic) => `<button class="btn ${S.simSport === id ? '' : 'ghost'} sm" data-simsport="${id}" style="margin-right:8px">${ic} ${label}</button>`;
-  const atCap = mine >= maxPerUser;
-  M.innerHTML = `<div class="page-h"><h2>FIFA simulation</h2><p>Start your own match on demand — same live pricing/settlement engine as every other fixture. ${mine}/${maxPerUser} running${queuedMine ? ', ' + queuedMine + ' queued' : ''}.</p></div>
-    <div class="card" style="margin-bottom:18px">
-      <h3 style="margin-top:0">Start a new simulation</h3>
-      <div style="margin-bottom:12px">
-        ${sportBtn('football', 'Football', '⚽')}${sportBtn('basketball', 'Basketball', '🏀')}${sportBtn('tennis', 'Tennis', '🎾')}${sportBtn('nfl', 'NFL', '🏈')}
-      </div>
-      ${atCap ? `<div class="note" style="margin-bottom:12px">You're at the ${maxPerUser}-simulation limit — starting another will queue it and it'll kick off automatically once one of your running sims finishes.</div>` : ''}
-      <button class="btn" id="startSimBtn">${atCap ? 'Queue simulation' : 'Kick off'}</button>
-    </div>
-    <h3>Running now (all users)</h3>
-    ${!sims.length ? `<div class="empty">No simulations running — start one above.</div>` :
-      `<div class="grid2">${sims.map(m => `<div class="card sim-card" style="position:relative">
-        <div class="sc-top" data-watch="${m.id}" style="cursor:pointer"><span class="sc-live"><i></i> LIVE · ${m.minute}'</span><span style="color:var(--dim)">${esc(m.realSport || m.sport)}</span></div>
-        <div class="sc-teams" data-watch="${m.id}" style="cursor:pointer">${esc(m.home)} ${m.score[0]} – ${m.score[1]} ${esc(m.away)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          ${m.simOwner === S.user.id ? `<span class="tag open">yours</span>` : '<span></span>'}
-          ${m.simOwner === S.user.id ? `<button class="btn ghost sm" data-abandon="${m.id}" style="width:auto">Abandon</button>` : ''}
-        </div>
-      </div>`).join('')}</div>`}`;
-  S.simSport = S.simSport || 'football';
-  $$('[data-simsport]').forEach(b => b.onclick = () => { S.simSport = b.dataset.simsport; renderSim(M); });
-  const startBtn = $('#startSimBtn');
-  if (startBtn) startBtn.onclick = async () => {
-    try {
-      const r = await api('POST', '/api/sims/start', { sport: S.simSport || 'football' });
-      if (r.queued) { toast('Queued', r.message || 'Will start automatically when a slot frees up.', 'ok'); renderSim(M); return; }
-      toast('Simulation started', esc(r.match.home) + ' v ' + esc(r.match.away), 'ok');
-      S.view = 'match'; S.watchId = r.match.id; renderRoute();
-    } catch (err) { toast('Could not start simulation', err.message, 'bad'); }
-  };
-  $$('[data-abandon]').forEach(b => b.onclick = async (e) => {
-    e.stopPropagation();
-    if (!confirm('Abandon this simulation now? Any open bets on it will be settled immediately at the current score.')) return;
-    try { await api('POST', `/api/sims/${b.dataset.abandon}/abandon`, {}); toast('Simulation abandoned', 'Open bets on it have been settled.', 'ok'); renderSim(M); await refreshAll(); }
-    catch (err) { toast('Could not abandon', err.message, 'bad'); }
-  });
-}
-
 /* ============ MATCH DETAIL / WATCH ============ */
-/* ---- goal celebration overlay — shared by every match-detail view (both a
-   regular live match and a FIFA sim open into the exact same renderMatchDetail
-   below, so one implementation covers both, as called out explicitly). Reads
+/* ---- goal celebration overlay — shared by every match-detail view. Reads
    the match's own most-recent event (m.events[0]) and its timestamp — no
    client-side timers needed, the CSS animation itself fades out over ~2.6s. ---- */
 const CONFETTI_COLORS = ['#FFD166', '#00E5D6', '#FF2E9A', '#FF4D6D', '#8C7AE6', '#3CE29B', '#FFFFFF', '#F2A93C'];
@@ -1400,17 +1308,15 @@ async function renderMatchDetail(M) {
   }
   const scoreLine = m.sport === 'tennis' ? m.sets : m.score;
   const events = (m.events || []).slice(0, 15);
-  const isMySim = m.sim && m.simOwner === S.user.id && !m.ended;
   const cel = isCelebratingNow(m);
   const scoredSide = celebratedSide(m);
   const ballPct = Math.max(6, Math.min(94, m.momentum ?? 50));
   const homePct = Math.max(4, Math.min(96, 100 - (m.momentum ?? 50)));
   M.innerHTML = `<div class="page-h">
-      <div><button class="btn ghost sm" data-go="${esc(m.sim ? 'sim' : m.sport)}">← Back to ${m.sim ? 'FIFA simulation' : 'board'}</button></div>
-      ${isMySim ? `<button class="btn ghost sm" id="abandonSimBtn">Abandon simulation</button>` : ''}
+      <div><button class="btn ghost sm" data-go="${esc(m.sport)}">← Back to board</button></div>
     </div>
     <div class="pitch ${cel ? 'celebrating' : ''} ${m.suspended ? 'suspending' : ''}">
-      <div class="sim-head"><span>${esc(m.league)}${m.verified ? ' · ✓ Verified' : ''}</span>
+      <div class="sim-head"><span>${esc(m.league)}</span>
         <span class="live-pill">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? '<i></i> LIVE' : 'Upcoming')}</span></div>
       ${celebrationHtml(m)}
       <div class="score-line">
@@ -1450,12 +1356,6 @@ async function renderMatchDetail(M) {
     </div>
     ${Object.entries(m.markets).map(([k, mkt]) => `<div class="mkt-block"><h4>${esc(mkt.label)}</h4><div class="odds">${mkt.sel.map(s => oddsBtn(m, k, s)).join('')}</div></div>`).join('')}`;
   $('#mdTabs').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { mdTab = b.dataset.t; renderMatchDetail(M); } };
-  const abandonBtn = $('#abandonSimBtn');
-  if (abandonBtn) abandonBtn.onclick = async () => {
-    if (!confirm('Abandon this simulation now? Any open bets on it will be settled immediately at the current score.')) return;
-    try { await api('POST', `/api/sims/${m.id}/abandon`, {}); toast('Simulation abandoned', 'Open bets on it have been settled.', 'ok'); S.view = 'sim'; renderRoute(); await refreshAll(); }
-    catch (err) { toast('Could not abandon', err.message, 'bad'); }
-  };
 }
 
 /* ============ SLIP ============ */
@@ -1924,9 +1824,6 @@ function openWithdraw(M) {
 /* ============ PROFILE ============ */
 async function renderProfile(M) {
   const u = S.user;
-  let history = [];
-  try { ({ history } = await api('GET', '/api/sims/history')); } catch {}
-  if (S.view !== 'profile') return;
   const initials = (u.name || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
   M.innerHTML = `<div class="page-h"><h2>Profile</h2><p>Account details, verification, limits and responsible-gaming controls</p></div>
     <div class="card" style="margin-bottom:16px;display:flex;gap:16px;align-items:center">
@@ -1973,13 +1870,6 @@ async function renderProfile(M) {
         <button class="btn ghost" data-exclude="168" style="width:auto">7 days</button>
         <button class="btn ghost" data-exclude="720" style="width:auto">30 days</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">FIFA simulation history</h3>
-      ${!history.length ? `<div class="empty" style="padding:20px">No simulations played yet.</div>` : `<div class="tablewrap"><table>
-        <thead><tr><th>Date</th><th>Sport</th><th>Match</th><th>Final score</th><th>Result</th></tr></thead>
-        <tbody>${history.map(h => `<tr><td data-label="Date">${fmtBeirut(h.t)}</td><td data-label="Sport">${esc(h.sport)}</td><td data-label="Match">${esc(h.home)} v ${esc(h.away)}</td><td data-label="Final score" class="num">${esc(h.finalScore)}</td><td data-label="Result">${esc(h.result)}</td></tr>`).join('')}</tbody></table></div>`}
     </div>`;
 
   const kycBtn = $('#profKycBtn');
@@ -2013,15 +1903,18 @@ let engineConfigCache = null;
 function matchRowsHtml(list) {
   if (!list.length) return `<tr><td colspan="7" style="color:var(--dim)">No matches found.</td></tr>`;
   return list.map(m => `<tr>
-    <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.verified ? '<span class="tag verified" style="margin-left:4px">✓ Verified</span>' : ''}${m.kind === 'fifa' ? '<span class="tag fifabadge" style="margin-left:4px">FIFA</span>' : ''}</td>
+    <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.apiSourced ? '<span class="tag" style="margin-left:4px;background:rgba(56,189,153,.15);color:#38bd99;border-color:rgba(56,189,153,.35)">⚡ Auto</span>' : (m.verified ? '<span class="tag verified" style="margin-left:4px">✓ Verified</span>' : '')}</td>
     <td data-label="Sport / League">${esc(m.sport)} · ${esc(m.league)}</td>
     <td data-label="Match">${esc(m.home)} v ${esc(m.away)}</td>
     <td data-label="Score" class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}${m.targetScore ? `<div style="font-size:10.5px;color:var(--gold);font-weight:700">→ ${m.targetScore.join('–')} target${m.targetHT ? ' (HT ' + m.targetHT.join('–') + ')' : ''}</div>` : ''}</td>
     <td data-label="Minute" class="num">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : '—')}</td>
     <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
-    <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
+    <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : m.apiSourced ? `
       <div class="admin-actionrow">
-        ${m.status === 'upcoming' ? `<button class="btn ghost sm" data-start-now="${m.id}">Start now</button>` : ''}
+        <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
+        <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
+      </div>` : `
+      <div class="admin-actionrow">
         ${m.status === 'live' ? `<button class="btn ghost sm" data-inc="${m.id}" data-inc-side="home">+1 home</button>
         <button class="btn ghost sm" data-inc="${m.id}" data-inc-side="away">+1 away</button>` : ''}
         <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
@@ -2051,6 +1944,56 @@ function matchRowsHtml(list) {
         <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
         <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">+FT added time</button>
       </div>` : ''}`}</td>
+  </tr>`).join('');
+}
+// A dedicated view of ONLY the ✓ Verified matches, for the admin dashboard's
+// own "Verified matches" section — unlike matchRowsHtml() above (whose
+// Actions column collapses to a plain "—" the moment a match finishes), this
+// NEVER takes the score editor away: a verified fixture's whole point is
+// that its result is admin-controlled, and that control is meant to stay
+// available for as long as the match exists, including well after full-time,
+// so a mistake can still be corrected later without digging through the
+// giant all-matches table to find it.
+function verifiedRowsHtml(list) {
+  if (!list.length) return `<tr><td colspan="5" style="color:var(--dim)">No verified matches yet — check "Mark as verified" when adding a real fixture above.</td></tr>`;
+  return list.map(m => `<tr>
+    <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.apiSourced ? '<span class="tag" style="margin-left:4px;background:rgba(56,189,153,.15);color:#38bd99;border-color:rgba(56,189,153,.35)">⚡ Auto-synced</span>' : ''}</td>
+    <td data-label="Match">${esc(m.sport)} · ${esc(m.league)}<br><b>${esc(m.home)} v ${esc(m.away)}</b></td>
+    <td data-label="Score" class="num" style="font-size:17px;font-weight:800">${Array.isArray(m.score) ? m.score.join(' – ') : ''}${m.targetScore ? `<div style="font-size:10.5px;color:var(--gold);font-weight:700">→ ${m.targetScore.join('–')} target${m.targetHT ? ' (HT ' + m.targetHT.join('–') + ')' : ''}</div>` : ''}</td>
+    <td data-label="Clock">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : fmtBeirut(m.start))}</td>
+    <td data-label="Admin control — always available">
+      ${m.apiSourced ? `
+      <div class="note" style="font-size:10.5px">Score, clock and odds come automatically from the live data feed — nothing to set here. Use Suspend/End only for emergency overrides.</div>
+      <div class="admin-actionrow" style="margin-top:6px">
+        ${m.status === 'live' ? `<button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
+        <button class="btn ghost sm" data-end-match="${m.id}">End now</button>` : ''}
+      </div>` : `
+      <div class="admin-actionrow">
+        ${m.status === 'upcoming' ? `<button class="btn ghost sm" data-start-now="${m.id}">Start now</button>` : ''}
+        ${m.status === 'live' ? `<button class="btn ghost sm" data-inc="${m.id}" data-inc-side="home">+1 home</button>
+        <button class="btn ghost sm" data-inc="${m.id}" data-inc-side="away">+1 away</button>
+        <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
+        <button class="btn ghost sm" data-end-match="${m.id}">End now</button>` : ''}
+      </div>
+      ${m.sport === 'football' && !m.ended ? `
+      <div class="admin-actionrow" style="margin-top:6px" title="Plays out naturally at random times across the match instead of jumping straight to this score">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="H" value="${m.targetScore ? m.targetScore[0] : ''}" data-tgt-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="A" value="${m.targetScore ? m.targetScore[1] : ''}" data-tgt-away="${m.id}">
+        <button class="btn ghost sm" data-set-final="${m.id}">Set final score</button>
+      </div>
+      ${!m.htScore ? `
+      <div class="admin-actionrow" style="margin-top:6px" title="Optional checkpoint — hits exactly this score at half-time on the way to the final score above">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="H" value="${m.targetHT ? m.targetHT[0] : ''}" data-tgtht-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" placeholder="A" value="${m.targetHT ? m.targetHT[1] : ''}" data-tgtht-away="${m.id}">
+        <button class="btn ghost sm" data-set-ht="${m.id}">Set HT score</button>
+      </div>` : ''}` : ''}
+      <div class="admin-actionrow" style="margin-top:6px" title="Directly overwrites the recorded score — works before, during and after the match">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
+        <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
+        <button class="btn ghost sm" data-force-score="${m.id}">${m.ended ? 'Correct final score' : 'Force score'}</button>
+      </div>
+      ${m.ended ? `<div class="note" style="margin-top:6px;font-size:10.5px">Match ended — any already-settled bets keep their original payout; this only corrects the recorded result.</div>` : ''}`}
+    </td>
   </tr>`).join('');
 }
 function userRowsHtml(list) {
@@ -2096,13 +2039,23 @@ async function renderAdmin(M) {
   const savedScroll = M.scrollTop;
   M.innerHTML = `<div class="page-h"><h2>Admin dashboard</h2><p>Every user and every bet, straight from the database</p></div><div id="adminBody">Loading…</div>`;
   try {
-    const [{ platform, users }, { bets }, { matches }, cfgResp] = await Promise.all([
+    const [{ platform, users }, { bets }, { matches }, cfgResp, apiStatus] = await Promise.all([
       api('GET', '/api/admin/overview'), api('GET', '/api/admin/bets'), api('GET', '/api/admin/matches'),
       api('GET', '/api/admin/config').catch(() => null),
+      api('GET', '/api/admin/apifootball/status').catch(() => null),
     ]);
     if (cfgResp) engineConfigCache = cfgResp;
     const statusOrder = { live: 0, upcoming: 1, finished: 2 };
     const sortedMatches = [...matches].sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.start - b.start);
+    // Verified matches get their own permanent section (see verifiedRowsHtml
+    // above) — live/upcoming first (soonest first), then finished ones most-
+    // recently-ended first, since a just-finished match is the one an admin
+    // is most likely to need to double-check or correct right after it ends.
+    const verifiedMatches = [...matches].filter(m => m.verified).sort((a, b) => {
+      const so = statusOrder[a.status] - statusOrder[b.status];
+      if (so !== 0) return so;
+      return a.status === 'finished' ? b.start - a.start : a.start - b.start;
+    });
     // Reflect the server's actual current engine/stake-limit config — this
     // used to always show hardcoded placeholder numbers here regardless of
     // what was really configured (see the new GET /api/admin/config route).
@@ -2112,7 +2065,8 @@ async function renderAdmin(M) {
       <div class="admin-subnav" id="adminSubnav">
         <button data-jump="sec-overview">Overview</button>
         <button data-jump="sec-config">Config</button>
-        <button data-jump="sec-fixtures">Add fixture</button>
+        <button data-jump="sec-apistatus">Live data feed</button>
+        <button data-jump="sec-verified">✓ Verified matches</button>
         <button data-jump="sec-matches">Matches</button>
         <button data-jump="sec-users">Users</button>
         <button data-jump="sec-bets">Bets</button>
@@ -2143,36 +2097,26 @@ async function renderAdmin(M) {
         <button class="btn ghost" id="cfgSaveBtn" style="width:auto">Save config</button>
       </div>
 
-      <h3 id="sec-fixtures">Add fixture</h3>
-      <div class="card admin-fxcard" style="margin-bottom:24px">
-        <div class="seg" style="margin-bottom:14px;max-width:360px">
-          <button type="button" data-fxkind="real" class="on">Real match (90 min)</button>
-          <button type="button" data-fxkind="fifa">FIFA quick match (~8 min)</button>
+      <h3 id="sec-apistatus">Live data feed — API-Football</h3>
+      <div class="card" style="margin-bottom:24px">
+        ${apiStatus ? `
+        <div class="grid2" style="margin-bottom:${apiStatus.lastError ? '12px' : '0'}">
+          <div class="stat"><div class="l">Key status</div><div class="v" style="font-size:16px">${apiStatus.keyOk === true ? '<span style="color:#38bd99">✓ Authenticating</span>' : apiStatus.keyOk === false ? '<span style="color:var(--red,#e5484d)">✗ Rejected</span>' : '<span style="color:var(--dim)">Not yet confirmed</span>'}</div></div>
+          <div class="stat"><div class="l">Fixtures tracked</div><div class="v" style="font-size:16px">${apiStatus.fixturesTracked}</div></div>
+          <div class="stat"><div class="l">Last schedule sync</div><div class="v" style="font-size:13px">${apiStatus.lastScheduleSync ? fmtBeirut(apiStatus.lastScheduleSync) : 'Not yet run'}</div></div>
+          <div class="stat"><div class="l">Last live sync</div><div class="v" style="font-size:13px">${apiStatus.lastLiveSync ? fmtBeirut(apiStatus.lastLiveSync) : 'Not yet run'}</div></div>
         </div>
-        <div class="row">
-          <div class="field"><label>Sport</label><select class="inp" id="fxSport"><option value="football">Football</option><option value="basketball">Basketball</option><option value="tennis">Tennis</option><option value="nfl">NFL</option></select></div>
-          <div class="field"><label>League</label><input class="inp" id="fxLeague" list="fxLeagueList" placeholder="Premier League, or type any league"><datalist id="fxLeagueList"></datalist></div>
-        </div>
-        <div class="row">
-          <div class="field"><label>Home</label><input class="inp" id="fxHome" list="fxTeamList" placeholder="Home team"></div>
-          <div class="field"><label>Away</label><input class="inp" id="fxAway" list="fxTeamList" placeholder="Away team"><datalist id="fxTeamList"></datalist></div>
-        </div>
-        <div class="row">
-          <div class="field"><label>Kick-off <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickDate" type="date"></div>
-          <div class="field"><label>&nbsp;</label><input class="inp" id="fxKickTime" type="time" value="20:00"></div>
-        </div>
-        <div id="fxVerifiedWrap" class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0 14px">
-          <input type="checkbox" id="fxVerified" style="width:18px;height:18px;margin:0">
-          <label for="fxVerified" style="margin:0">Mark as verified / real fixture <span style="color:var(--dim)">(locks scoring to admin only, shown with the ✓ Verified badge)</span></label>
-        </div>
-        <div id="fxOddsWrap" class="row">
-          <div class="field"><label>Odds — home <span style="color:var(--dim)">(optional)</span></label><input class="inp" id="fxOddsHome" type="number" step="0.01" min="1.01" placeholder="e.g. 2.10"></div>
-          <div class="field"><label>Odds — draw</label><input class="inp" id="fxOddsDraw" type="number" step="0.01" min="1.01" placeholder="e.g. 3.40"></div>
-          <div class="field"><label>Odds — away</label><input class="inp" id="fxOddsAway" type="number" step="0.01" min="1.01" placeholder="e.g. 3.20"></div>
-        </div>
-        <p style="color:var(--dim);font-size:11.5px;margin:-4px 0 12px">Leave odds blank to let the engine price it automatically. Odds only apply to football's match-result market — every other market (O/U, BTTS, handicap…) is derived from it. Real fixtures kick off exactly at the time you set — they never get force-started early. FIFA fixtures are shown on the sim board instead of the real board.</p>
-        <button class="btn ghost" id="fxAddBtn" style="width:auto">Add fixture</button>
+        ${apiStatus.lastError ? `<div class="note" style="font-size:11.5px;color:var(--red,#e5484d)">${esc(apiStatus.lastError)}</div>` : ''}
+        ${apiStatus.disabled ? `<div class="note" style="font-size:11.5px;color:var(--red,#e5484d);margin-top:6px">Feed has stopped retrying after repeated failures — fix the key/connection and restart the app to resume.</div>` : ''}
+        ` : `<div class="note">Could not load feed status.</div>`}
+        <p style="color:var(--dim);font-size:11.5px;margin:10px 0 0">Every match on the site is created and scored automatically from this feed — there is no manual fixture entry. Set the <code>API_FOOTBALL_KEY</code> environment variable on your host to use your own key. Only football is covered by this feed, so other sports have no matches until a data source for them is connected.</p>
       </div>
+
+      <h3 id="sec-verified" style="color:var(--gold);display:flex;align-items:center;gap:8px">✓ Verified matches (${verifiedMatches.length})</h3>
+      <p style="color:var(--dim);font-size:11.5px;margin:-6px 0 12px">Every real fixture the data feed has brought in, live, upcoming or finished — this list is read-only by design (see the live data feed above); Suspend/End remain for emergency use only.</p>
+      <input class="inp" id="qVerified" placeholder="Search verified matches — team, league…" style="margin-bottom:10px;max-width:420px">
+      <div class="tablewrap admin-matches admin-verified-table" style="margin-bottom:28px"><table><thead><tr><th>Status</th><th>Match</th><th>Score</th><th>Clock</th><th>Admin control</th></tr></thead>
+      <tbody id="verifiedTbody">${verifiedRowsHtml(verifiedMatches)}</tbody></table></div>
 
       <h3 id="sec-matches">All matches — real-time, straight from the server (${matches.length})</h3>
       <input class="inp" id="qMatches" placeholder="Search matches — team, league, sport…" style="margin-bottom:10px;max-width:420px">
@@ -2199,42 +2143,6 @@ async function renderAdmin(M) {
         toast('Config saved', 'Margin/suspend and stake limits updated.', 'ok');
       } catch (err) { toast('Save failed', err.message, 'bad'); }
     };
-    // Default the kickoff date field to "today, Beirut time" so admin usually
-    // only has to touch the time field.
-    $('#fxKickDate').value = new Date().toLocaleDateString('en-CA', { timeZone: BEIRUT_TZ });
-    let fxKind = 'real';
-    $$('[data-fxkind]').forEach(b => b.onclick = () => {
-      fxKind = b.dataset.fxkind;
-      $$('[data-fxkind]').forEach(x => x.classList.toggle('on', x === b));
-      $('#fxVerifiedWrap').classList.toggle('hide', fxKind !== 'real');
-    });
-    // Populate the league/team datalists from the engine's known rosters —
-    // admin can still type any brand-new league or team, this just saves
-    // typing for the 120+ real leagues the engine already knows about.
-    api('GET', '/api/admin/teams').then(({ teams }) => {
-      const leagues = new Set(), allTeams = new Set();
-      Object.values(teams || {}).forEach(bySport => Object.entries(bySport).forEach(([lg, roster]) => {
-        leagues.add(lg); roster.forEach(t => allTeams.add(t));
-      }));
-      $('#fxLeagueList').innerHTML = [...leagues].map(l => `<option value="${esc(l)}">`).join('');
-      $('#fxTeamList').innerHTML = [...allTeams].map(t => `<option value="${esc(t)}">`).join('');
-    }).catch(() => {});
-    $('#fxAddBtn').onclick = async () => {
-      try {
-        if (!$('#fxKickDate').value || !$('#fxKickTime').value) return toast('Missing kickoff', 'Pick both a date and a time.', 'bad');
-        const payload = {
-          sport: $('#fxSport').value, league: $('#fxLeague').value.trim(),
-          home: $('#fxHome').value.trim(), away: $('#fxAway').value.trim(),
-          kind: fxKind, verified: fxKind === 'real' && $('#fxVerified').checked,
-          kickoffDate: $('#fxKickDate').value, kickoffTime: $('#fxKickTime').value,
-        };
-        const oh = $('#fxOddsHome').value, od = $('#fxOddsDraw').value, oa = $('#fxOddsAway').value;
-        if (oh && od && oa) { payload.oddsHome = +oh; payload.oddsDraw = +od; payload.oddsAway = +oa; }
-        await api('POST', '/api/admin/fixtures', payload);
-        toast('Fixture added', 'It will kick off automatically at the time you set (Beirut time), or use Start now.', 'ok');
-        renderAdmin(M);
-      } catch (err) { toast('Could not add fixture', err.message, 'bad'); }
-    };
     // A sticky sub-nav for jumping straight to a section on this long page —
     // scrollIntoView on the main scroller rather than a real anchor link, so
     // it works the same inside #main's own scroll box on mobile and desktop.
@@ -2251,6 +2159,11 @@ async function renderAdmin(M) {
       const q = norm(e.target.value);
       const filtered = !q ? sortedMatches : sortedMatches.filter(m => norm(m.sport).includes(q) || norm(m.league).includes(q) || norm(m.home).includes(q) || norm(m.away).includes(q));
       $('#matchesTbody').innerHTML = matchRowsHtml(filtered);
+    };
+    $('#qVerified').oninput = (e) => {
+      const q = norm(e.target.value);
+      const filtered = !q ? verifiedMatches : verifiedMatches.filter(m => norm(m.sport).includes(q) || norm(m.league).includes(q) || norm(m.home).includes(q) || norm(m.away).includes(q));
+      $('#verifiedTbody').innerHTML = verifiedRowsHtml(filtered);
     };
     $('#qUsers').oninput = (e) => {
       const q = norm(e.target.value);
@@ -2293,9 +2206,6 @@ async function renderAdmin(M) {
           toast('Half-time target set', `Will be ${home} – ${away} at HT.`, 'ok');
           renderAdmin(M);
         } catch (err) { toast('Could not set half-time score', err.message, 'bad'); }
-      } else if ((t = b('[data-start-now]'))) {
-        try { await api('POST', `/api/admin/matches/${t.dataset.startNow}/start-now`, {}); toast('Match started', 'Kicked off immediately.', 'ok'); renderAdmin(M); }
-        catch (err) { toast('Could not start match', err.message, 'bad'); }
       } else if ((t = b('[data-inc]'))) {
         try { await api('POST', `/api/admin/matches/${t.dataset.inc}/increment`, { side: t.dataset.incSide }); toast('Goal added', t.dataset.incSide === 'home' ? 'Home +1' : 'Away +1', 'ok'); renderAdmin(M); }
         catch (err) { toast('Could not update score', err.message, 'bad'); }
@@ -2420,25 +2330,13 @@ function refreshAll() {
 }
 async function doRefreshAll() {
   try {
-    const [{ user }, matchesF, matchesB, matchesT, matchesN, { bets }, { txs }, { activity }, simsResp] = await Promise.all([
+    const [{ user }, matchesF, matchesB, matchesT, matchesN, { bets }, { txs }, { activity }] = await Promise.all([
       api('GET', '/api/me'),
       api('GET', '/api/matches?sport=football'), api('GET', '/api/matches?sport=basketball'),
       api('GET', '/api/matches?sport=tennis'), api('GET', '/api/matches?sport=nfl'),
       api('GET', '/api/bets'), api('GET', '/api/transactions'), api('GET', '/api/activity'),
-      api('GET', '/api/sims').catch(() => ({ sims: [] })),
     ]);
     S.user = user; S.matches = [...matchesF.matches, ...matchesB.matches, ...matchesT.matches, ...matchesN.matches].map(m => ({ ...m, suspended: m.suspendedUntil && Date.now() < m.suspendedUntil }));
-    // FIFA simulations never appear in S.matches (the board deliberately
-    // excludes them — they have their own page), but goal sound/tracking
-    // still needs to see them, otherwise a goal in a sim you're watching or
-    // have staked on never makes a sound at all. Kept separate from
-    // S.matches so the board's own filtering/rendering is untouched.
-    const simMatches = simsResp.sims || [];
-    // Kept on S too (alongside the sound-tracking use above) so the sport
-    // board's new "Live FIFA"/"Upcoming FIFA" tabs can filter these by sport
-    // and live/scheduled status, the same way S.matches already works for
-    // the real-match tabs.
-    S.sims = simMatches;
 
     // Sound: a bet transitioning from open -> won/lost between two polls.
     let justCredited = false;
@@ -2460,14 +2358,14 @@ async function doRefreshAll() {
     const betMatchIds = new Set(bets.filter(b => b.status === 'open').flatMap(b => b.legs.map(l => l.matchId)));
     const relevantIds = new Set(betMatchIds);
     if (S.view === 'match' && S.watchId) relevantIds.add(S.watchId);
-    [...S.matches, ...simMatches].forEach(m => {
+    S.matches.forEach(m => {
       const cur = JSON.stringify(m.score);
       const prev = prevScoreByMatch[m.id];
       if (prev !== undefined && prev !== cur && relevantIds.has(m.id)) {
         soundGoal();
         // A goal on a match you have money on — clickable toast straight to it.
         if (betMatchIds.has(m.id)) {
-          toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: m.sim ? 'sim' : 'match', id: m.id });
+          toast('Goal!', m.home + ' ' + m.score.join('–') + ' ' + m.away + ' — you have an open bet here', 'ok', { type: 'match', id: m.id });
         }
       }
       prevScoreByMatch[m.id] = cur;
@@ -2475,7 +2373,7 @@ async function doRefreshAll() {
 
     S.bets = bets; S.txs = txs; S.activity = activity;
     renderBalance(justCredited); refreshSlipOdds();
-    if (['football', 'basketball', 'tennis', 'nfl', 'match', 'sim'].includes(S.view)) renderRoute();
+    if (['football', 'basketball', 'tennis', 'nfl', 'match'].includes(S.view)) renderRoute();
   } catch (err) { /* transient poll failure — try again next tick */ }
 }
 async function boot() {

@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const db = require('./db');
 const engine = require('./engine');
+const CORRECT_SCORE_KEYS = new Set(engine.CORRECT_SCORES.map((cs) => cs.join('-')));
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 
 const uid = (p) => p + crypto.randomBytes(6).toString('hex');
@@ -132,6 +133,16 @@ function legResult(leg, m) {
     const win = h > a ? 'H' : (h < a ? 'A' : 'D');
     const btts = h > 0 && a > 0;
     return (leg.selK[0] === win && (leg.selK[1] === 'Y') === btts) ? 'won' : 'lost';
+  }
+  if (leg.mkt === 'OE') {
+    const odd = (h + a) % 2 === 1;
+    return (leg.selK === 'O') === odd ? 'won' : 'lost';
+  }
+  if (leg.mkt === 'CS') {
+    const key = h + '-' + a;
+    const known = CORRECT_SCORE_KEYS.has(key);
+    if (leg.selK === 'OTHER') return known ? 'lost' : 'won';
+    return leg.selK === key ? 'won' : 'lost';
   }
   return 'void';
 }
@@ -655,6 +666,7 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
       // showing "45+N'" forever instead of switching to a plain minute) and
       // could never show or gate the currently-set added time.
       htScore: m.htScore || null, addedHT: m.addedHT || 0, addedFT: m.addedFT || 0,
+      targetScore: m.targetScore || null, targetHT: m.targetHT || null,
     };
   });
   json(res, 200, { matches });
@@ -663,6 +675,41 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
 route('GET', '/api/admin/bets', (req, res) => {
   const rows = db.prepare(`SELECT b.*, u.email AS user_email, u.name AS user_name FROM bets b JOIN users u ON u.id = b.user_id ORDER BY b.placed_at DESC LIMIT 500`).all();
   json(res, 200, { bets: rows.map((r) => ({ id: r.id, userEmail: r.user_email, userName: r.user_name, type: r.type, stake: r.stake, odds: r.odds, payout: r.payout, status: r.status, returned: r.returned, placed: r.placed_at, legs: JSON.parse(r.legs) })) });
+}, { auth: true, admin: true });
+
+// Lets admin correct a mistaken bet: cancel it and refund the stake in full.
+// Only makes sense for a bet that hasn't settled yet.
+route('POST', '/api/admin/bets/:id/void', (req, res, p) => {
+  const row = db.prepare('SELECT * FROM bets WHERE id = ?').get(p.id);
+  if (!row) return json(res, 404, { error: 'Bet not found.' });
+  if (row.status !== 'open') return json(res, 400, { error: 'Only an open bet can be voided.' });
+  db.prepare("UPDATE bets SET status = 'void', returned = ? WHERE id = ?").run(row.stake, row.id);
+  creditUser(row.user_id, row.stake);
+  addTx(row.user_id, 'refund', 'Admin voided bet — stake returned', row.stake);
+  addActivity(row.user_id, 'Bet voided by admin, stake returned', '+' + fmt(row.stake));
+  json(res, 200, { ok: true });
+}, { auth: true, admin: true });
+
+// Lets admin force a still-open bet's outcome directly — e.g. to correct a
+// bet that would otherwise resolve wrong because of an earlier data mistake.
+// Pays out or writes it off exactly like the normal settlement path would.
+route('POST', '/api/admin/bets/:id/settle', (req, res, p, body) => {
+  const row = db.prepare('SELECT * FROM bets WHERE id = ?').get(p.id);
+  if (!row) return json(res, 404, { error: 'Bet not found.' });
+  if (row.status !== 'open') return json(res, 400, { error: 'Only an open bet can be force-settled.' });
+  const result = body?.result === 'won' ? 'won' : body?.result === 'lost' ? 'lost' : null;
+  if (!result) return json(res, 400, { error: "result must be 'won' or 'lost'." });
+  if (result === 'won') {
+    db.prepare("UPDATE bets SET status = 'won', returned = ? WHERE id = ?").run(row.payout, row.id);
+    creditUser(row.user_id, row.payout);
+    addTx(row.user_id, 'payout', 'Admin settled bet — won', row.payout);
+    bumpPlatform('payout', row.payout);
+    addActivity(row.user_id, 'Bet settled won by admin', '+' + fmt(row.payout));
+  } else {
+    db.prepare("UPDATE bets SET status = 'lost', returned = 0 WHERE id = ?").run(row.id);
+    addActivity(row.user_id, 'Bet settled lost by admin', '-' + fmt(row.stake));
+  }
+  json(res, 200, { ok: true });
 }, { auth: true, admin: true });
 
 // The admin page's engine/stake-limit form used to always show its
@@ -712,6 +759,53 @@ route('POST', '/api/admin/matches/:id/force-score', (req, res, p, body) => {
   if (m.sport === 'tennis') m.sets = [home, away];
   m.adminLocked = true;
   engine.priceMatch(m);
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+// "Set final score" — the natural alternative to +1/+1 the admin asked for:
+// instead of snapping the score straight to the number (which read as an
+// obvious scam to bettors watching it happen), this only records the target;
+// engine.js's scriptFootballGoal() then plays the goals out at randomised
+// times across the rest of the match (and, if a half-time score was also
+// set, hits that checkpoint first) so it still ends at exactly this score
+// but looks like a normal live match the whole way there. Works the same for
+// FIFA/sim fixtures as for real ones.
+route('POST', '/api/admin/matches/:id/set-final-score', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  if (m.sport !== 'football') return json(res, 400, { error: 'Scripted final score is currently football-only.' });
+  if (m.ended) return json(res, 400, { error: 'Match already ended.' });
+  const home = +body?.home, away = +body?.away;
+  if (!Number.isFinite(home) || !Number.isFinite(away) || home < 0 || away < 0) return json(res, 400, { error: 'home/away must be non-negative numbers.' });
+  if (home < (m.score[0] || 0) || away < (m.score[1] || 0)) {
+    return json(res, 400, { error: `Target must be at least the current score (${m.score.join('–')}) for both sides.` });
+  }
+  if (Array.isArray(m.targetHT) && (m.targetHT[0] > home || m.targetHT[1] > away)) {
+    return json(res, 400, { error: `Target must be at least the half-time target you already set (${m.targetHT.join('–')}).` });
+  }
+  m.targetScore = [home, away];
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+// "Set half-time score" — an optional intermediate checkpoint so the scripted
+// result also hits a specific score exactly at half-time, not only at
+// full-time. Only meaningful before half-time has actually happened.
+route('POST', '/api/admin/matches/:id/set-ht-score', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  if (m.sport !== 'football') return json(res, 400, { error: 'Scripted half-time score is football-only.' });
+  if (m.htScore) return json(res, 400, { error: 'Half-time has already passed for this match.' });
+  const home = +body?.home, away = +body?.away;
+  if (!Number.isFinite(home) || !Number.isFinite(away) || home < 0 || away < 0) return json(res, 400, { error: 'home/away must be non-negative numbers.' });
+  if (home < (m.score[0] || 0) || away < (m.score[1] || 0)) {
+    return json(res, 400, { error: `Target must be at least the current score (${m.score.join('–')}) for both sides.` });
+  }
+  if (Array.isArray(m.targetScore) && (home > m.targetScore[0] || away > m.targetScore[1])) {
+    return json(res, 400, { error: `Half-time target can't be higher than the final target you already set (${m.targetScore.join('–')}).` });
+  }
+  m.targetHT = [home, away];
   engine.saveMatch(m);
   json(res, 200, { match: m });
 }, { auth: true, admin: true });

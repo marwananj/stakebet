@@ -466,6 +466,11 @@ function validateLeg(input) {
       matchId: m.id, mkt: input.mkt, selK: input.selK, odds: sel.o, selName: sel.n,
       mktLabel: market.label, matchName: m.home + ' v ' + m.away, sport: m.sport,
       line: market.line ?? null,
+      // Captured at bet time so "My bets" can still show the FIFA/Verified
+      // badge on a settled bet later — a FIFA fixture drops out of
+      // /api/sims (and a real one loses its live flag) once it ends, so the
+      // frontend can no longer look this up by re-fetching the match.
+      sim: !!m.sim, verified: !!m.verified,
     },
   };
 }

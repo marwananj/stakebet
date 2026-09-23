@@ -2103,13 +2103,16 @@ async function renderAdmin(M) {
         <div class="grid2" style="margin-bottom:${apiStatus.lastError ? '12px' : '0'}">
           <div class="stat"><div class="l">Key status</div><div class="v" style="font-size:16px">${apiStatus.keyOk === true ? '<span style="color:#38bd99">✓ Authenticating</span>' : apiStatus.keyOk === false ? '<span style="color:var(--red,#e5484d)">✗ Rejected</span>' : '<span style="color:var(--dim)">Not yet confirmed</span>'}</div></div>
           <div class="stat"><div class="l">Fixtures tracked</div><div class="v" style="font-size:16px">${apiStatus.fixturesTracked}</div></div>
+          <div class="stat"><div class="l">Requests used today</div><div class="v" style="font-size:16px">${apiStatus.requestsUsedToday} / ${apiStatus.requestsLimitPerDay}${apiStatus.requestsUsedToday >= apiStatus.requestsLimitPerDay ? ' <span style="color:var(--gold)">(paused)</span>' : ''}</div></div>
+          <div class="stat"><div class="l">Budget resets</div><div class="v" style="font-size:13px">${fmtBeirut(apiStatus.budgetResetsAt)}</div></div>
           <div class="stat"><div class="l">Last schedule sync</div><div class="v" style="font-size:13px">${apiStatus.lastScheduleSync ? fmtBeirut(apiStatus.lastScheduleSync) : 'Not yet run'}</div></div>
           <div class="stat"><div class="l">Last live sync</div><div class="v" style="font-size:13px">${apiStatus.lastLiveSync ? fmtBeirut(apiStatus.lastLiveSync) : 'Not yet run'}</div></div>
         </div>
+        ${apiStatus.quotaExceededByProvider ? `<div class="note" style="font-size:11.5px;color:var(--gold)">The provider's own rate limit kicked in — this clears itself automatically, no action needed.</div>` : ''}
         ${apiStatus.lastError ? `<div class="note" style="font-size:11.5px;color:var(--red,#e5484d)">${esc(apiStatus.lastError)}</div>` : ''}
         ${apiStatus.disabled ? `<div class="note" style="font-size:11.5px;color:var(--red,#e5484d);margin-top:6px">Feed has stopped retrying after repeated failures — fix the key/connection and restart the app to resume.</div>` : ''}
         ` : `<div class="note">Could not load feed status.</div>`}
-        <p style="color:var(--dim);font-size:11.5px;margin:10px 0 0">Every match on the site is created and scored automatically from this feed — there is no manual fixture entry. Set the <code>API_FOOTBALL_KEY</code> environment variable on your host to use your own key. Only football is covered by this feed, so other sports have no matches until a data source for them is connected.</p>
+        <p style="color:var(--dim);font-size:11.5px;margin:10px 0 0">Every match on the site is created and scored automatically from this feed — there is no manual fixture entry. Set the <code>API_FOOTBALL_KEY</code> environment variable on your host to use your own key. Request pacing above is sized to stay under a free-plan daily limit; raise <code>API_FOOTBALL_DAILY_LIMIT</code> and the sync interval env vars if you're on a paid plan. Only football is covered by this feed, so other sports have no matches until a data source for them is connected.</p>
       </div>
 
       <h3 id="sec-verified" style="color:var(--gold);display:flex;align-items:center;gap:8px">✓ Verified matches (${verifiedMatches.length})</h3>

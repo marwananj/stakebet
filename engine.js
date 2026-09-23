@@ -201,11 +201,18 @@ function priceIndependent(p) {
 }
 function lockOdds(...vals) { return vals.some((v) => v <= 1.02); }
 
+// The exact scorelines a "Correct score" market offers — the dozen or so an
+// actual sportsbook shows individually, with every longer-shot combination
+// folded into a single "Any other score" catch-all instead of listing all 81
+// grid cells (which would be unusable as a betslip and, at 8+ goals apiece,
+// priced on vanishingly thin probability anyway).
+const CORRECT_SCORES = [[0,0],[1,0],[0,1],[1,1],[2,0],[0,2],[2,1],[1,2],[2,2],[3,0],[0,3],[3,1],[1,3],[3,2],[2,3]];
 function footballProbs(m) {
   const rem = Math.max(0, (m.live ? 90 - m.minute : 90)) / 90;
   const lh = m.str[0] * rem + 0.001, la = m.str[1] * rem + 0.001;
-  let pH = 0, pD = 0, pA = 0, pOv = 0, pBtts = 0, pAHhome = 0, pAHaway = 0;
+  let pH = 0, pD = 0, pA = 0, pOv = 0, pBtts = 0, pAHhome = 0, pAHaway = 0, pOdd = 0;
   const ah = m.ahLine || 0;
+  const csRemaining = CORRECT_SCORES.map(() => 0);
   for (let i = 0; i <= 8; i++) {
     for (let j = 0; j <= 8; j++) {
       const p = pois(i, lh) * pois(j, la);
@@ -213,10 +220,19 @@ function footballProbs(m) {
       if (H > A) pH += p; else if (H === A) pD += p; else pA += p;
       if (H + A > m.line) pOv += p;
       if (H > 0 && A > 0) pBtts += p;
+      if ((H + A) % 2 === 1) pOdd += p;
       const adj = (H + ah) - A;
       if (adj > 0.001) pAHhome += p; else if (adj < -0.001) pAHaway += p; else { pAHhome += p / 2; pAHaway += p / 2; }
+      // i/j is goals still to come this "remaining match" model, so a
+      // specific FINAL scoreline requires exactly the goals still needed
+      // for both sides from here — anything already ahead of a listed line
+      // (e.g. current score already 2–0 against a listed "0–0") simply never
+      // matches any row and correctly falls into "any other score" below.
+      CORRECT_SCORES.forEach((cs, idx) => { if (H === cs[0] && A === cs[1]) csRemaining[idx] += p; });
     }
   }
+  const pCS = csRemaining;
+  const pCSOther = Math.max(0, 1 - pCS.reduce((a, b) => a + b, 0));
   // 1st-half-only model: purely pregame-shaped off m.str, independent of the
   // live in-match score/minute — the first half doesn't care what happens in
   // the second, and once htScore exists the HT market is closed anyway.
@@ -229,7 +245,7 @@ function footballProbs(m) {
     }
   }
   const pHY = pH * pBtts, pHN = pH * (1 - pBtts), pDY = pD * pBtts, pDN = pD * (1 - pBtts), pAY = pA * pBtts, pAN = pA * (1 - pBtts);
-  return { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN };
+  return { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN, pOdd, pCS, pCSOther };
 }
 
 function priceMatch(m) {
@@ -240,7 +256,7 @@ function priceMatch(m) {
     // already clears the quoted line, "Over" is a certainty, not a bet — a
     // real book moves the line up instead of quoting odds that can't lose.
     while (m.score[0] + m.score[1] >= m.line) m.line += 1;
-    const { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN } = footballProbs(m);
+    const { pH, pD, pA, pOv, pBtts, pAHhome, pAHaway, pH1, pD1, pA1, pHY, pHN, pDY, pDN, pAY, pAN, pOdd, pCS, pCSOther } = footballProbs(m);
     const [h, d, a] = priceFromProbs([pH, pD, pA]);
     const [o, u] = priceFromProbs([pOv, 1 - pOv]);
     const [y, n] = priceFromProbs([pBtts, 1 - pBtts]);
@@ -248,6 +264,8 @@ function priceMatch(m) {
     const [h1, d1, a1] = priceFromProbs([pH1, pD1, pA1]);
     const [wHY, wHN, wDY, wDN, wAY, wAN] = priceFromProbs([pHY, pHN, pDY, pDN, pAY, pAN]);
     const [ahH, ahA] = priceFromProbs([pAHhome, pAHaway]);
+    const [oddO, evenO] = priceFromProbs([pOdd, 1 - pOdd]);
+    const csOdds = priceFromProbs([...pCS, pCSOther]);
     const ah = m.ahLine || 0;
     m.markets = {
       '1X2': { label: 'Match result', closed: lockOdds(h, d, a), sel: [{ k: '1', n: m.home, o: h }, { k: 'X', n: 'Draw', o: d }, { k: '2', n: m.away, o: a }] },
@@ -260,6 +278,11 @@ function priceMatch(m) {
         { k: 'DY', n: 'Draw & BTTS Yes', o: wDY }, { k: 'DN', n: 'Draw & BTTS No', o: wDN },
         { k: 'AY', n: m.away + ' & BTTS Yes', o: wAY }, { k: 'AN', n: m.away + ' & BTTS No', o: wAN } ] },
       'AH': { label: 'Handicap (' + (ah > 0 ? '+' : '') + ah + ')', line: ah, closed: lockOdds(ahH, ahA), sel: [{ k: '1', n: m.home + ' ' + (ah > 0 ? '+' : '') + ah, o: ahH }, { k: '2', n: m.away + ' ' + (-ah > 0 ? '+' : '') + (-ah), o: ahA }] },
+      'OE': { label: 'Odd/Even total goals', closed: lockOdds(oddO, evenO), sel: [{ k: 'O', n: 'Odd', o: oddO }, { k: 'E', n: 'Even', o: evenO }] },
+      'CS': { label: 'Correct score', closed: lockOdds(...csOdds), sel: [
+        ...CORRECT_SCORES.map((cs, idx) => ({ k: cs.join('-'), n: cs.join('–'), o: csOdds[idx] })),
+        { k: 'OTHER', n: 'Any other score', o: csOdds[csOdds.length - 1] },
+      ] },
     };
   } else if (m.sport === 'tennis') {
     let p = m.str[0];
@@ -325,6 +348,32 @@ function pushEvent(m, partial) {
   m.events.unshift(e);
   m.events = m.events.slice(0, 40);
 }
+// Spreads the goals needed to reach an admin-fixed final score (m.targetScore
+// — and, before half-time, an optional intermediate m.targetHT checkpoint)
+// naturally across the remaining minutes, instead of the score jumping
+// straight to the final number right when the admin sets it or right at
+// full-time. Each remaining minute, each side that still needs a goal gets a
+// `needed / minutesRemaining` chance to score one now. That's a standard
+// "spread N events evenly over T remaining slots" trick: recomputed every
+// minute, it guarantees the target is hit exactly by the deadline (the
+// probability rises to a dead-certain 1 only on the very last minute that
+// could still fit every outstanding goal), while almost always resolving
+// well before that, at a different, unpredictable minute every time.
+function scriptFootballGoal(m) {
+  const htDeadline = 45 + (m.addedHT || 0);
+  const ftDeadline = capFor(m);
+  const usingHT = Array.isArray(m.targetHT) && !m.htScore && m.minute < htDeadline;
+  const deadline = usingHT ? htDeadline : ftDeadline;
+  const target = usingHT ? m.targetHT : m.targetScore;
+  const remaining = Math.max(1, deadline - m.minute);
+  for (const side of [0, 1]) {
+    const needed = Math.max(0, (target[side] || 0) - (m.score[side] || 0));
+    if (needed > 0 && Math.random() < needed / remaining) {
+      m.score[side]++; m.lastScorer = side; suspendMatch(m, CONFIG.suspendMs);
+      pushEvent(m, { side, kind: 'goal', txt: 'Goal — ' + (side ? m.away : m.home) + ' ' + m.score.join('–') });
+    }
+  }
+}
 function stepMinute(m) {
   m.minute++;
   // >= rather than === so this can't be permanently skipped if an admin
@@ -371,7 +420,14 @@ function stepMinute(m) {
   // the clock/momentum/suspense running normally, so the match doesn't look
   // frozen — the score stays exactly what the admin set until they change it
   // again or end the match.
-  if (m.verified || m.adminLocked) {
+  if (m.sport === 'football' && Array.isArray(m.targetScore)) {
+    // Scripted result: the admin has fixed the final (and optionally
+    // half-time) score directly, rather than nudging it goal-by-goal with
+    // +1 — see scriptFootballGoal() below. This plays the goals out at
+    // random-feeling times across the match instead of the score jumping
+    // straight to the final number, for both real and FIFA fixtures alike.
+    scriptFootballGoal(m);
+  } else if (m.verified || m.adminLocked) {
     // no random scoring this tick
   } else if (m.sport === 'football') {
     if (Math.random() < 0.035) {
@@ -830,5 +886,5 @@ module.exports = {
   saveMatch, getMatch, listMatches, listRecentlyEnded, startEngine, CONFIG,
   startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
   BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds, MAX_LIVE_PER_LEAGUE,
-  kickOffFresh, REAL_SEC_PER_MIN, FIFA_SEC_PER_MIN,
+  kickOffFresh, REAL_SEC_PER_MIN, FIFA_SEC_PER_MIN, CORRECT_SCORES,
 };

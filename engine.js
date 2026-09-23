@@ -175,6 +175,21 @@ function normCdf(z) {
   return z > 0 ? 1 - p : p;
 }
 const CONFIG = { margin: 0.055, suspendMs: 4000 };
+function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+// Sane per-sport bounds for m.str (team "strength" — expected goals/points
+// for the match, or for tennis a raw win probability) — see tick()'s pregame
+// drift loop below for why these exist: without a hard ceiling/floor, a
+// small multiplicative nudge applied every few seconds compounds, and a
+// fixture that sits "upcoming" for many hours (up to 48h — see makeMatch)
+// goes through tens of thousands of nudges. A pure random walk with no
+// bound doesn't average out to "roughly where it started" — it drifts, and
+// over that many steps it drifts far: a moderately-matched fixture could end
+// up quoting a near-impossible mismatch by the time it kicks off, which is
+// exactly the "many high odds, not real" symptom this fixes. Bounding each
+// sport's strength value to the same range makeMatch() already randomizes
+// fresh fixtures within keeps the wobble feeling alive (odds still move)
+// without ever running away.
+const STR_BOUNDS = { football: [0.5, 3.0], basketball: [95, 130], nfl: [12, 34] };
 // For a genuine partition — mutually exclusive outcomes whose true
 // probabilities already sum to 1 (1X2, Over/Under, BTTS yes/no, Asian
 // handicap, half-time result) — the vig is distributed across them together:
@@ -233,15 +248,33 @@ function footballProbs(m) {
   }
   const pCS = csRemaining;
   const pCSOther = Math.max(0, 1 - pCS.reduce((a, b) => a + b, 0));
-  // 1st-half-only model: purely pregame-shaped off m.str, independent of the
-  // live in-match score/minute — the first half doesn't care what happens in
-  // the second, and once htScore exists the HT market is closed anyway.
+  // 1st-half market: while the match is still inside its first half, this
+  // must reflect the score AS IT ACTUALLY STANDS so far this half, the same
+  // way the full-time 1X2 above already reacts to goals — it used to always
+  // price off the pregame team strengths alone, completely ignoring the live
+  // score, so a team already 2–0 up in the 20th minute still showed a
+  // near-even "1st half result" price. No real in-play book does that.
   let pH1 = 0, pD1 = 0, pA1 = 0;
-  const lh1 = m.str[0] * 0.5 + 0.001, la1 = m.str[1] * 0.5 + 0.001;
+  const htDeadline = 45 + (m.addedHT || 0);
+  let baseH1 = 0, baseA1 = 0, htRem = htDeadline;
+  if (m.live && !m.htScore) {
+    baseH1 = m.score[0]; baseA1 = m.score[1];
+    htRem = Math.max(0, htDeadline - m.minute);
+  } else if (m.htScore) {
+    // Half-time has already happened — the market is closed by then anyway
+    // (see markets.HT.closed below), but keep the numbers internally
+    // consistent with the actual recorded half-time result rather than 0.
+    baseH1 = m.htScore[0]; baseA1 = m.htScore[1]; htRem = 0;
+  }
+  // Same "goals per 90 minutes" rate model the full-time market above uses —
+  // expected additional goals over the minutes remaining until half-time is
+  // the full-match strength scaled by that remaining time out of 90.
+  const lh1 = m.str[0] * (htRem / 90) + 0.001, la1 = m.str[1] * (htRem / 90) + 0.001;
   for (let i = 0; i <= 8; i++) {
     for (let j = 0; j <= 8; j++) {
       const p = pois(i, lh1) * pois(j, la1);
-      if (i > j) pH1 += p; else if (i === j) pD1 += p; else pA1 += p;
+      const H1 = baseH1 + i, A1 = baseA1 + j;
+      if (H1 > A1) pH1 += p; else if (H1 === A1) pD1 += p; else pA1 += p;
     }
   }
   const pHY = pH * pBtts, pHN = pH * (1 - pBtts), pDY = pD * pBtts, pDN = pD * (1 - pBtts), pAY = pA * pBtts, pAN = pA * (1 - pBtts);
@@ -249,6 +282,13 @@ function footballProbs(m) {
 }
 
 function priceMatch(m) {
+  // API-sourced matches carry real odds fetched from the external feed
+  // (apifootball.js), never this engine's own Poisson/logistic model — the
+  // model doesn't even have a meaningful m.str for them. Every call site
+  // (kickoff, live ticks, and several admin score-edit endpoints) can safely
+  // call priceMatch() unconditionally without needing to know which kind of
+  // match it's touching; this is the single place that draws the line.
+  if (m.apiSourced) return;
   m.prevOdds = JSON.parse(JSON.stringify(m.markets || {}));
   if (m.sport === 'football') {
     if (!m.live) m.ahLine = Math.round((m.str[1] - m.str[0]) * 2) / 2;
@@ -512,246 +552,12 @@ function listRecentlyEnded(sport) {
     .filter((m) => m.endedAt && now() - m.endedAt < ENDED_GRACE_MS);
 }
 
-// ---------- user-started FIFA-style simulations ----------
-// Everything on this board is already a simulation under the hood — there's
-// no real live-data feed — but this is the one kind of match a user starts
-// themselves, on demand, right now, rather than waiting for the schedule.
-// It runs through the exact same makeMatch/priceMatch/advanceMatch/settleMatch
-// pipeline as every other match (the shared tick() loop below already
-// advances/reprices/settles it with no special-casing needed) — the only
-// difference is `m.sim`/`m.simOwner`, which the API layer uses to keep these
-// out of the regular sport boards and list them in their own section instead.
-const MAX_SIMS_PER_USER = 3;
-function countUserSims(userId) {
-  return listMatches({ ended: false }).filter((m) => m.sim && m.simOwner === userId).length;
-}
-function startSim(userId, sport) {
-  if (!TEAMS[sport]) return { error: 'Unknown sport.' };
-  if (countUserSims(userId) >= MAX_SIMS_PER_USER) return { error: `You can only run ${MAX_SIMS_PER_USER} simulations at once — wait for one to finish.` };
-  const teams = Object.values(TEAMS[sport])[0];
-  const pool = [...teams];
-  const home = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-  const away = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-  const m = makeMatch(sport, 'FIFA Simulation', home, away, true);
-  m.sim = true;
-  m.simOwner = userId;
-  m.minute = 0; m.liveStart = now(); m.start = now(); m.score = [0, 0];
-  if (sport === 'tennis') { m.sets = [0, 0]; m.games = [0, 0]; }
-  priceMatch(m);
-  saveMatch(m);
-  return { match: m };
-}
-function listSims() {
-  return listMatches({ ended: false }).filter((m) => m.sim);
-}
-
-function pairAllTeams(teams) {
-  const pool = [...teams];
-  const pairs = [];
-  while (pool.length > 1) {
-    const h = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-    const a = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-    pairs.push([h, a]);
-  }
-  return pairs;
-}
-// Generates a fresh, all-pregame batch of fixtures for one sport/league,
-// staggered a few minutes to an hour apart — used both for the very first
-// seed and later to keep topping the board up (see topUpFixtures) so a sport
-// never runs dry once its initial slate has finished.
-function genFixtures(sportId, league, teams) {
-  pairAllTeams(teams).forEach((p, i) => {
-    const m = makeMatch(sportId, league, p[0], p[1], false);
-    m.start = now() + (i + 1) * rnd(2, 6) * 60000;
-    saveMatch(m);
-  });
-}
-// ---------- verified real-world fixtures (example data) ----------
-// A small, clearly-labeled set of EXAMPLE fixtures for a couple of
-// recognizable real competitions, mirroring the original prototype's
-// REAL_FIXTURES pattern. There's no live real-world results feed behind
-// this — these are just real team names/competitions with a kickoff time
-// computed relative to `now()` (next occurrence of a given weekday/hour, in
-// Beirut time — see nextWeekday() near the top of this file) so they never
-// look stale, unlike a hardcoded past date would. They're seeded once
-// alongside the normal procedural fixtures and marked m.verified = true,
-// same flag the admin-added-fixture flow already uses for its "✓ Verified" badge.
-function buildRealFixtures() {
-  // One matchday's worth of headline, real-team fixtures per league already
-  // on the board (plus Champions League), so every league — not just one —
-  // has a verified, "✓ Verified" fixture in its own rotation, the same
-  // spread-across-every-league approach the client-only artifact used.
-  return [
-    { league: 'Premier League', home: 'Arsenal', away: 'Liverpool', start: nextWeekday(6, 15, 0) },
-    { league: 'Premier League', home: 'Man City', away: 'Chelsea', start: nextWeekday(6, 17, 30) },
-    { league: 'Premier League', home: 'Tottenham', away: 'Man United', start: nextWeekday(0, 16, 0) },
-    { league: 'La Liga', home: 'Real Madrid', away: 'Barcelona', start: nextWeekday(6, 21, 0) },
-    { league: 'La Liga', home: 'Atlético Madrid', away: 'Sevilla', start: nextWeekday(0, 18, 30) },
-    { league: 'Serie A', home: 'Inter', away: 'Juventus', start: nextWeekday(6, 19, 45) },
-    { league: 'Serie A', home: 'Milan', away: 'Napoli', start: nextWeekday(0, 20, 45) },
-    { league: 'Bundesliga', home: 'Bayern Munich', away: 'Borussia Dortmund', start: nextWeekday(5, 19, 30) },
-    { league: 'Bundesliga', home: 'RB Leipzig', away: 'Bayer Leverkusen', start: nextWeekday(6, 16, 30) },
-    { league: 'Ligue 1', home: 'Paris Saint-Germain', away: 'Marseille', start: nextWeekday(0, 20, 45) },
-    { league: 'UEFA Champions League', home: 'Real Madrid', away: 'Bayern Munich', start: nextWeekday(2, 21, 0) },
-    { league: 'UEFA Champions League', home: 'Paris Saint-Germain', away: 'Inter', start: nextWeekday(2, 21, 0) },
-    { league: 'UEFA Champions League', home: 'Barcelona', away: 'Manchester City', start: nextWeekday(3, 21, 0) },
-    { league: 'Süper Lig', home: 'Galatasaray', away: 'Fenerbahçe', start: nextWeekday(0, 19, 0) },
-    { league: 'Süper Lig', home: 'Beşiktaş', away: 'Trabzonspor', start: nextWeekday(6, 17, 0) },
-    { league: 'Primeira Liga', home: 'Benfica', away: 'Porto', start: nextWeekday(0, 20, 30) },
-    { league: 'Primeira Liga', home: 'Sporting CP', away: 'Braga', start: nextWeekday(6, 19, 0) },
-    // Nations League matchdays run roughly two weeks apart — spreading these
-    // a couple of days apart (rather than all on one night) mirrors that.
-    { league: 'UEFA Nations League A', home: 'France', away: 'Germany', start: nextWeekday(2, 20, 45) },
-    { league: 'UEFA Nations League A', home: 'Portugal', away: 'Spain', start: nextWeekday(3, 20, 45) },
-    { league: 'UEFA Nations League A', home: 'Italy', away: 'Netherlands', start: nextWeekday(2, 20, 45) },
-    { league: 'UEFA Nations League B', home: 'Turkey', away: 'Wales', start: nextWeekday(3, 20, 45) },
-    { league: 'UEFA Nations League B', home: 'Switzerland', away: 'Serbia', start: nextWeekday(2, 18, 0) },
-    { league: 'UEFA Nations League C', home: 'Armenia', away: 'Cyprus', start: nextWeekday(3, 18, 0) },
-  ];
-}
-function seedRealFixtures() {
-  for (const fx of buildRealFixtures()) {
-    const m = makeMatch('football', fx.league, fx.home, fx.away, false);
-    m.start = fx.start;
-    // NOT verified: these are recurring "next Saturday/Tuesday" placeholder
-    // fixtures (see nextWeekday() above) that recompute to a different date
-    // every time the server restarts — they were never tied to an actual
-    // confirmed real-world kickoff, just headline team names spread across
-    // every league so each one had *something* in its rotation. Marking them
-    // verified made them show up in the "✓ Verified real matches" tab
-    // alongside genuinely researched, dated fixtures (see
-    // buildSpecialFixtures()), which is misleading — they play out like any
-    // other procedurally-simulated match, just with real team names.
-    saveMatch(m);
-  }
-}
-// One-time cleanup for databases seeded before the change above: demotes any
-// already-verified row that matches one of buildRealFixtures()'s recurring
-// placeholder fixtures back to a normal (non-verified) match, so an already-
-// running deployment's "Verified real matches" tab also stops showing them,
-// not just freshly-seeded ones. Matched by sport/league/home/away only (not
-// `start`, which recomputes every boot) and only touches matches still in
-// play (not yet ended), so a genuinely-finished historical result is left
-// alone.
-function demoteUnreliableVerifiedFixtures() {
-  for (const fx of buildRealFixtures()) {
-    const rows = db.prepare('SELECT id, data FROM matches WHERE sport = ? AND league = ? AND home = ? AND away = ? AND ended = 0 AND verified = 1')
-      .all('football', fx.league, fx.home, fx.away);
-    for (const row of rows) {
-      const m = JSON.parse(row.data);
-      m.verified = false;
-      saveMatch(m);
-    }
-  }
-}
-// One-off, dated real-world fixtures (as opposed to buildRealFixtures()'s
-// recurring "next Tuesday/Wednesday" ones) — e.g. a specific matchday copied
-// in from a real competition's real schedule and odds. Runs on every boot
-// (not just when the DB is empty, unlike seedRealFixtures()/seedIfEmpty()),
-// but is idempotent: it skips any fixture that already exists for the same
-// league/teams/kickoff so restarting the server never creates duplicates.
-// Every match here is `verified`, so stepMinute()'s admin-only scoring gate
-// applies — the engine will never touch their score; only the admin can, via
-// force-score, exactly the "full result only admin put" behaviour requested.
-function buildSpecialFixtures() {
-  return [
-    // UEFA Women's Champions League — Matchday 1, Wed 23 Sep 2026 (Beirut time)
-    { league: "UEFA Women's Champions League", home: 'Real Madrid (W)', away: 'PSG (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.44, 4.50, 7.00] },
-    { league: "UEFA Women's Champions League", home: 'Juventus (W)', away: 'Benfica (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.72, 3.20, 5.50] },
-    { league: "UEFA Women's Champions League", home: 'Arsenal (W)', away: 'HB Køge (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.10, 8.00, 15.00] },
-    { league: "UEFA Women's Champions League", home: 'OH Leuven (W)', away: 'Roma (W)', start: beirutWallToUtc(2026, 9, 23, 19, 45), odds: [3.90, 4.20, 1.61] },
-    { league: "UEFA Women's Champions League", home: 'Servette FC Chenois (W)', away: 'OL Lyonnes (W)', start: beirutWallToUtc(2026, 9, 23, 19, 45), odds: [67.00, 21.00, 1.015] },
-    { league: "UEFA Women's Champions League", home: 'Barcelona (W)', away: 'Paris FC (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 17.00, 51.00] },
-    { league: "UEFA Women's Champions League", home: 'Chelsea (W)', away: 'FK Austria Vienna (W)', start: beirutWallToUtc(2026, 9, 23, 22, 0), odds: [1.025, 19.00, 51.00] },
-    // Colombia — Categoría Primera A / Liga BetPlay, matchday 12. Kickoff
-    // 19:00 Bogotá time (UTC-5, no DST) = 03:00 Beirut the next calendar day.
-    // Deep search on the other big South American leagues for this same
-    // window came up empty/unconfirmed: Brazil's Série A has no fixtures at
-    // all between 20 Sep and 2 Oct 2026 (an international-break gap), and
-    // Argentina's Liga Profesional round for this week couldn't be pinned to
-    // an exact, reliably-sourced date/time — so neither is included here
-    // rather than guessing at "real" matches that aren't actually confirmed.
-    { league: 'Categoría Primera A', home: 'Independiente Medellín', away: 'Jaguares de Córdoba', start: beirutWallToUtc(2026, 9, 23, 3, 0), odds: [1.30, 5.00, 9.00] },
-    // UEFA Nations League A/B — Matchday 1, confirmed against UEFA's own
-    // published schedule. Kickoffs are 20:45/18:00 CEST → +1h = Beirut.
-    // (Unlike the old buildRealFixtures() Nations League entries — now
-    // demoted, see demoteUnreliableVerifiedFixtures() — these are dated,
-    // confirmed real fixtures, not a recurring placeholder.)
-    { league: 'UEFA Nations League A', home: 'Netherlands', away: 'Germany', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.37, 3.80, 2.70] },
-    { league: 'UEFA Nations League A', home: 'Norway', away: 'Denmark', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.70, 4.10, 4.50] },
-    { league: 'UEFA Nations League A', home: 'Portugal', away: 'Wales', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.22, 6.50, 13.00] },
-    { league: 'UEFA Nations League A', home: 'Serbia', away: 'Greece', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.62, 3.30, 2.70] },
-    { league: 'UEFA Nations League A', home: 'Italy', away: 'Belgium', start: beirutWallToUtc(2026, 9, 25, 21, 45), odds: [2.20, 3.50, 3.20] },
-    { league: 'UEFA Nations League A', home: 'Türkiye', away: 'France', start: beirutWallToUtc(2026, 9, 25, 21, 45), odds: [6.50, 4.75, 1.44] },
-    { league: 'UEFA Nations League B', home: 'Austria', away: 'Israel', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [1.42, 4.75, 6.50] },
-    { league: 'UEFA Nations League B', home: 'Kosovo', away: 'Republic of Ireland', start: beirutWallToUtc(2026, 9, 24, 21, 45), odds: [2.40, 3.10, 3.10] },
-    { league: 'UEFA Nations League B', home: 'Georgia', away: 'Northern Ireland', start: beirutWallToUtc(2026, 9, 25, 19, 0), odds: [1.83, 3.50, 4.10] },
-  ];
-}
-function seedSpecialFixtures() {
-  for (const fx of buildSpecialFixtures()) {
-    const dupe = db.prepare('SELECT id FROM matches WHERE sport = ? AND league = ? AND home = ? AND away = ? AND start = ?')
-      .get('football', fx.league, fx.home, fx.away, Math.round(fx.start));
-    if (dupe) continue;
-    const m = makeMatch('football', fx.league, fx.home, fx.away, false);
-    m.start = fx.start;
-    m.verified = true;
-    m.secPerMin = REAL_SEC_PER_MIN;
-    const [oh, od, oa] = fx.odds;
-    const str = strengthsForOdds(oh, od, oa);
-    if (str) m.str = str;
-    priceMatch(m);
-    // The Poisson-grid solve above gets every other market (O/U, BTTS,
-    // handicap…) internally consistent, but at very lopsided odds (a heavy
-    // 1.01-ish favourite against a 50+ underdog) the grid's own resolution
-    // can't quite reach the exact typed price. Since the whole point here is
-    // "same odds" as given, pin the pregame 1X2 line to the exact input —
-    // once the match kicks off, live play reprices it (and everything else)
-    // off the solved strengths as normal, same as any other fixture.
-    if (m.markets['1X2']) {
-      const sel = m.markets['1X2'].sel;
-      sel.find((s) => s.k === '1').o = oh;
-      sel.find((s) => s.k === 'X').o = od;
-      sel.find((s) => s.k === '2').o = oa;
-    }
-    saveMatch(m);
-  }
-}
-// Kicks a single fixture off mid-match (random elapsed clock/score) — shared
-// by the boot-time seed below and used to bring a league straight to a live
-// match instead of waiting for its scheduled kickoff.
-function kickOffMidMatch(m) {
-  const cap = capFor(m);
-  const elapsed = Math.floor(rnd(6, Math.min(cap - 4, cap * 0.7)));
-  m.live = true; m.minute = elapsed; m.liveStart = now() - elapsed * SEC_PER_MATCH_MIN * 1000;
-  m.start = now() - elapsed * 60000; m.momentum = 50;
-  if (m.sport === 'football') m.score = [Math.floor(rnd(0, 3)), Math.floor(rnd(0, 3))];
-  else if (m.sport === 'tennis') { m.sets = [Math.floor(rnd(0, 2)), Math.floor(rnd(0, 2))]; m.games = [Math.floor(rnd(0, 6)), Math.floor(rnd(0, 6))]; m.score = m.sets; }
-  else { const f = elapsed / cap; m.score = [Math.round(m.str[0] * f), Math.round(m.str[1] * f)]; }
-  priceMatch(m);
-  saveMatch(m);
-}
-function seedIfEmpty() {
-  const { c } = db.prepare('SELECT COUNT(*) AS c FROM matches').get();
-  if (c > 0) return;
-  seedRealFixtures();
-  for (const s of SPORTS) {
-    for (const [lg, teams] of Object.entries(TEAMS[s.id])) {
-      genFixtures(s.id, lg, teams);
-      // Kick MAX_LIVE_PER_LEAGUE matches off immediately (mid-match) so every
-      // league starts with a full slate of live action the moment the server
-      // boots, instead of a mostly-empty board that only fills in as
-      // fixtures individually reach their scheduled kickoff time.
-      const rows = listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
-      rows.slice(0, MAX_LIVE_PER_LEAGUE).forEach(kickOffMidMatch);
-    }
-  }
-}
-// Every league maybeKickoff()/topUpFixtures() know to manage — normally just
+// Every league an admin might add a manual fixture under — normally just
 // TEAMS's fixed list, but an admin can add a fixture (POST /api/admin/fixtures)
-// under a brand-new league name that isn't in TEAMS at all. Without this,
-// maybeKickoff()'s loop (which only ever visited Object.keys(TEAMS[sport]))
-// silently never looked at that league, so a custom-league fixture's
+// under a brand-new league name that isn't in TEAMS at all, or the automatic
+// sports-data feed can create real fixtures under league names of its own.
+// Without this, maybeKickoff()'s loop (which only ever visited
+// Object.keys(TEAMS[sport])) silently never looked at that league, so its
 // scheduled kickoff time would pass and it would just sit there forever,
 // never actually going live no matter how long you waited.
 function leaguesFor(sportId) {
@@ -760,28 +566,7 @@ function leaguesFor(sportId) {
   const extra = rows.map((r) => r.league).filter((lg) => !known.includes(lg));
   return known.concat(extra);
 }
-// Keeps every sport/league stocked with upcoming fixtures. Without this, a
-// short-clocked sport (basketball/NFL run their whole "match minute" clock
-// in a couple of real minutes) would burn through its one-time seeded slate
-// and the board would go permanently empty — a real book never runs out of
-// fixtures, so neither should this one.
-const MIN_POOL_PER_LEAGUE = 3;
-function topUpFixtures() {
-  for (const s of SPORTS) {
-    for (const [lg, teams] of Object.entries(TEAMS[s.id])) {
-      const remaining = listMatches({ sport: s.id, ended: false }).filter((m) => m.league === lg);
-      if (remaining.length < MIN_POOL_PER_LEAGUE) genFixtures(s.id, lg, teams);
-    }
-  }
-}
 
-// Per-LEAGUE cap, not per-sport — with 5 football leagues on the board, a
-// single sport-wide cap of 3 meant at most 3 live football matches total no
-// matter how many leagues existed. Capping per league instead means every
-// league gets its own shot at having something live, so the board actually
-// fills up the way a real multi-league book's does ("many matches, real and
-// live" rather than a handful of matches starved across five competitions).
-const MAX_LIVE_PER_LEAGUE = 2;
 function kickOffFresh(m) {
   m.live = true; m.minute = 0; m.liveStart = now(); m.momentum = 50;
   // A pregame score an admin deliberately set (adminLocked — see routes.js's
@@ -796,49 +581,24 @@ function kickOffFresh(m) {
   priceMatch(m);
   saveMatch(m);
 }
+// Only ever kicks off a fixture the ADMIN scheduled by hand (m.adminAdded) —
+// every match here now carries a deliberately-chosen real kickoff time, so it
+// goes live right at that time, full stop. A match sourced automatically from
+// the live sports-data feed (m.apiSourced) is managed exclusively by that
+// feed's own sync loop (see apifootball.js) — its live/ended state and score
+// come from the real world, never from this engine's clock, so it's excluded
+// here entirely; kicking it off "early" or resetting its score the way this
+// function does for a manually-scheduled fixture would silently corrupt a
+// real result. There is no more procedurally-simulated filler to keep a
+// league's board topped up — an empty board now just means there's genuinely
+// nothing real scheduled or live, which is the whole point of "real matches
+// only".
 function maybeKickoff() {
   for (const s of SPORTS) {
     for (const lg of leaguesFor(s.id)) {
-      const upcomingAll = () => listMatches({ sport: s.id, live: false, ended: false }).filter((m) => m.league === lg);
-      // A verified fixture (admin-added, or one of the curated real-world
-      // ones) carries an explicit, deliberately-chosen kickoff time, so it
-      // always goes live right at that time — even if it means briefly
-      // exceeding the league's normal live cap below. An admin who set
-      // "23/09 8:00 PM" expects the match to actually start then, not
-      // silently wait for a slot some procedurally-generated filler fixture
-      // is occupying.
-      // Same guarantee now covers every admin-scheduled fixture (`adminAdded`
-      // — real *or* FIFA, verified or not), not just verified ones: without
-      // this, a FIFA fixture (never verified) whose scheduled kickoff had
-      // already passed could sit stuck in "upcoming" indefinitely once its
-      // league's live slots were full, since the filler-fallback below
-      // deliberately skips adminAdded fixtures too. Once its own clock says
-      // it's time, it goes live — full stop, cap or no cap.
-      upcomingAll().filter((m) => (m.verified || m.adminAdded) && m.start <= now()).forEach(kickOffFresh);
-
-      const live = listMatches({ sport: s.id, live: true, ended: false }).filter((m) => m.league === lg);
-      if (live.length >= MAX_LIVE_PER_LEAGUE) continue;
-      const upcoming = upcomingAll();
-      if (!upcoming.length) continue;
-      let due = upcoming.filter((m) => m.start <= now());
-      // Never let a league's board go completely dark: if nothing is live at
-      // all in this league, kick off the soonest upcoming fixture right away
-      // instead of waiting out its scheduled start — a real book always has
-      // *something* on, even if the strict schedule says otherwise. This
-      // filler-only fallback must never pick a *verified* fixture — those
-      // carry a deliberately-chosen real kickoff time (e.g. tomorrow at
-      // 21:00), and force-starting one early just because its league has
-      // nothing live yet would silently move a real match's kickoff. A
-      // verified fixture only ever goes live via the `.filter(m => m.verified
-      // && m.start <= now())` line above, right at its own scheduled time.
-      if (!due.length) {
-        if (live.length === 0) {
-          const filler = upcoming.filter((m) => !m.verified && !m.adminAdded).sort((a, b) => a.start - b.start)[0];
-          due = filler ? [filler] : [];
-        }
-        if (!due.length) continue; // nothing fillable — wait for a fixture's own kick-off time
-      }
-      kickOffFresh(pick(due));
+      const upcoming = listMatches({ sport: s.id, live: false, ended: false })
+        .filter((m) => m.league === lg && m.adminAdded && !m.apiSourced);
+      upcoming.filter((m) => m.start <= now()).forEach(kickOffFresh);
     }
   }
 }
@@ -850,6 +610,11 @@ function maybeKickoff() {
 function tick(onSettle) {
   const live = listMatches({ live: true, ended: false });
   for (const m of live) {
+    // API-sourced matches are driven entirely by the external real-data sync
+    // (apifootball.js) — their clock, score and odds come from the real feed,
+    // never from this internal simulation clock. Touching them here would
+    // corrupt real data with synthetic progression.
+    if (m.apiSourced) continue;
     const ended = advanceMatch(m);
     // advanceMatch()/stepMinute() only ever touch the clock/score — they never
     // reprice the match themselves (priceMatch() is otherwise only called once
@@ -864,26 +629,12 @@ function tick(onSettle) {
     saveMatch(m);
     if (ended && onSettle) onSettle(m);
   }
-  const pregame = listMatches({ live: false, ended: false }).filter((m) => !m.verified);
-  for (const m of pregame) {
-    if (Math.random() > 0.4) continue;
-    if (m.driftBias == null || Math.random() < 0.05) m.driftBias = rnd(-1, 1);
-    const bias = m.driftBias;
-    if (m.sport === 'football') { m.str[0] *= rnd(.97, 1.03) * (1 + bias * 0.01); m.str[1] *= rnd(.97, 1.03) * (1 - bias * 0.01); }
-    else { m.str[0] *= rnd(.988, 1.012) * (1 + bias * 0.006); m.str[1] *= rnd(.988, 1.012) * (1 - bias * 0.006); }
-    priceMatch(m);
-    saveMatch(m);
-  }
-  topUpFixtures();
   maybeKickoff();
 }
 
 let engineTimer = null;
 function startEngine(onSettle) {
   if (engineTimer) return;
-  seedIfEmpty();
-  demoteUnreliableVerifiedFixtures();
-  seedSpecialFixtures();
   maybeKickoff();
   engineTimer = setInterval(() => tick(onSettle), 3000);
 }
@@ -891,7 +642,7 @@ function startEngine(onSettle) {
 module.exports = {
   TEAMS, SPORTS, priceMatch, makeMatch, isSuspended, capFor,
   saveMatch, getMatch, listMatches, listRecentlyEnded, startEngine, CONFIG,
-  startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
-  BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds, MAX_LIVE_PER_LEAGUE,
+  suspendMatch,
+  BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds,
   kickOffFresh, REAL_SEC_PER_MIN, FIFA_SEC_PER_MIN, CORRECT_SCORES,
 };

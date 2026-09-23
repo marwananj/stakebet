@@ -807,7 +807,14 @@ function maybeKickoff() {
       // "23/09 8:00 PM" expects the match to actually start then, not
       // silently wait for a slot some procedurally-generated filler fixture
       // is occupying.
-      upcomingAll().filter((m) => m.verified && m.start <= now()).forEach(kickOffFresh);
+      // Same guarantee now covers every admin-scheduled fixture (`adminAdded`
+      // — real *or* FIFA, verified or not), not just verified ones: without
+      // this, a FIFA fixture (never verified) whose scheduled kickoff had
+      // already passed could sit stuck in "upcoming" indefinitely once its
+      // league's live slots were full, since the filler-fallback below
+      // deliberately skips adminAdded fixtures too. Once its own clock says
+      // it's time, it goes live — full stop, cap or no cap.
+      upcomingAll().filter((m) => (m.verified || m.adminAdded) && m.start <= now()).forEach(kickOffFresh);
 
       const live = listMatches({ sport: s.id, live: true, ended: false }).filter((m) => m.league === lg);
       if (live.length >= MAX_LIVE_PER_LEAGUE) continue;

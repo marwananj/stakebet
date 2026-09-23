@@ -309,6 +309,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:10px 12px;font-size:10.5px;color:var(--dim);border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.4px;font-weight:700;background:var(--raised)}
 td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-lg)}
+/* Admin matches-table action controls (start now / +1 home-away / suspend /
+   end / set score / added-time) — a flexible, wrapping row of small buttons
+   and narrow number inputs so they never force horizontal scrolling, on
+   desktop or phone, no matter how many actions a given row has. */
+.admin-actionrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.admin-num{width:56px;flex:none;padding:8px 6px;text-align:center}
+.admin-fxcard .row{align-items:flex-end}
 .tag{display:inline-block;font-size:10.5px;padding:3px 8px;border-radius:6px;font-weight:700;background:var(--raised2);color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
 .tag.won{background:var(--up-soft);color:var(--up)}
 .tag.lost{background:var(--down-soft);color:var(--down)}
@@ -1868,56 +1875,64 @@ async function renderAdmin(M) {
       </div>
 
       <h3>Add fixture</h3>
-      <div class="card" style="margin-bottom:24px">
+      <div class="card admin-fxcard" style="margin-bottom:24px">
+        <div class="seg" style="margin-bottom:14px;max-width:360px">
+          <button type="button" data-fxkind="real" class="on">Real match (90 min)</button>
+          <button type="button" data-fxkind="fifa">FIFA quick match (~8 min)</button>
+        </div>
         <div class="row">
           <div class="field"><label>Sport</label><select class="inp" id="fxSport"><option value="football">Football</option><option value="basketball">Basketball</option><option value="tennis">Tennis</option><option value="nfl">NFL</option></select></div>
-          <div class="field"><label>League</label><input class="inp" id="fxLeague" placeholder="Premier League"></div>
+          <div class="field"><label>League</label><input class="inp" id="fxLeague" list="fxLeagueList" placeholder="Premier League, or type any league"><datalist id="fxLeagueList"></datalist></div>
         </div>
         <div class="row">
-          <div class="field"><label>Home</label><input class="inp" id="fxHome" placeholder="Home team"></div>
-          <div class="field"><label>Away</label><input class="inp" id="fxAway" placeholder="Away team"></div>
+          <div class="field"><label>Home</label><input class="inp" id="fxHome" list="fxTeamList" placeholder="Home team"></div>
+          <div class="field"><label>Away</label><input class="inp" id="fxAway" list="fxTeamList" placeholder="Away team"><datalist id="fxTeamList"></datalist></div>
         </div>
-        <div class="seg" style="margin-bottom:12px;max-width:320px">
-          <button type="button" data-fxmode="quick" class="on">Starts in N minutes</button>
-          <button type="button" data-fxmode="date">Pick date &amp; time</button>
+        <div class="row">
+          <div class="field"><label>Kick-off <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickDate" type="date"></div>
+          <div class="field"><label>&nbsp;</label><input class="inp" id="fxKickTime" type="time" value="20:00"></div>
         </div>
-        <div id="fxQuick" class="field"><label>Starts in (minutes)</label><input class="inp" id="fxStart" type="number" min="0" value="10"></div>
-        <div id="fxDate" class="row hide">
-          <div class="field"><label>Kickoff date <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickDate" type="date"></div>
-          <div class="field"><label>Kickoff time <span style="color:var(--dim)">(Beirut time)</span></label><input class="inp" id="fxKickTime" type="time" value="20:00"></div>
+        <div id="fxVerifiedWrap" class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0 14px">
+          <input type="checkbox" id="fxVerified" style="width:18px;height:18px;margin:0">
+          <label for="fxVerified" style="margin:0">Mark as verified / real fixture <span style="color:var(--dim)">(locks scoring to admin only, shown with the ✓ Verified badge)</span></label>
         </div>
         <div id="fxOddsWrap" class="row">
           <div class="field"><label>Odds — home <span style="color:var(--dim)">(optional)</span></label><input class="inp" id="fxOddsHome" type="number" step="0.01" min="1.01" placeholder="e.g. 2.10"></div>
           <div class="field"><label>Odds — draw</label><input class="inp" id="fxOddsDraw" type="number" step="0.01" min="1.01" placeholder="e.g. 3.40"></div>
           <div class="field"><label>Odds — away</label><input class="inp" id="fxOddsAway" type="number" step="0.01" min="1.01" placeholder="e.g. 3.20"></div>
         </div>
-        <p style="color:var(--dim);font-size:11.5px;margin:-4px 0 12px">Leave odds blank to let the engine price it automatically. Odds only apply to football's match-result market — every other market (O/U, BTTS, handicap…) is derived from it and updates live once kickoff passes.</p>
+        <p style="color:var(--dim);font-size:11.5px;margin:-4px 0 12px">Leave odds blank to let the engine price it automatically. Odds only apply to football's match-result market — every other market (O/U, BTTS, handicap…) is derived from it. Real fixtures kick off exactly at the time you set — they never get force-started early. FIFA fixtures are shown on the sim board instead of the real board.</p>
         <button class="btn ghost" id="fxAddBtn" style="width:auto">Add fixture</button>
       </div>
 
       <h3>All matches — real-time, straight from the server (${matches.length})</h3>
-      <div class="tablewrap" style="margin-bottom:24px"><table><thead><tr><th>Status</th><th>Sport / League</th><th>Match</th><th>Score</th><th>Minute</th><th>Kickoff</th><th>Actions</th></tr></thead>
+      <div class="tablewrap admin-matches" style="margin-bottom:24px"><table><thead><tr><th>Status</th><th>Sport / League</th><th>Match</th><th>Score</th><th>Minute</th><th>Kickoff</th><th>Actions</th></tr></thead>
       <tbody>${sortedMatches.map(m => `<tr>
-        <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}${m.verified ? ' · verified' : ''}</span></td>
+        <td data-label="Status"><span class="tag ${m.status === 'live' ? 'open' : (m.status === 'finished' ? 'won' : 'void')}">${m.status}</span>${m.verified ? '<span class="tag won" style="margin-left:4px">✓ Verified</span>' : ''}${m.kind === 'fifa' ? '<span class="tag" style="margin-left:4px">FIFA</span>' : ''}</td>
         <td data-label="Sport / League">${esc(m.sport)} · ${esc(m.league)}</td>
         <td data-label="Match">${esc(m.home)} v ${esc(m.away)}</td>
         <td data-label="Score" class="num">${Array.isArray(m.score) ? m.score.join(' – ') : ''}</td>
         <td data-label="Minute" class="num">${m.live ? (m.sport === 'football' ? footballClock(m) : m.minute + "'") : (m.ended ? 'FT' : '—')}</td>
         <td data-label="Kickoff">${fmtBeirut(m.start)}</td>
         <td data-label="Actions">${m.status === 'finished' ? '<span style="color:var(--dim)">—</span>' : `
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
-            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
-            <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
-            <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend 5s</button>
+          <div class="admin-actionrow">
+            ${m.status === 'upcoming' ? `<button class="btn ghost sm" data-start-now="${m.id}">Start now</button>` : ''}
+            ${m.status === 'live' ? `<button class="btn ghost sm" data-inc="${m.id}" data-inc-side="home">+1 home</button>
+            <button class="btn ghost sm" data-inc="${m.id}" data-inc-side="away">+1 away</button>` : ''}
+            <button class="btn ghost sm" data-suspend-match="${m.id}">Suspend</button>
             <button class="btn ghost sm" data-end-match="${m.id}">End now</button>
           </div>
+          <div class="admin-actionrow" style="margin-top:6px">
+            <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[0] : 0}" data-fs-home="${m.id}">
+            <input class="inp admin-num" type="number" inputmode="numeric" min="0" value="${Array.isArray(m.score) ? m.score[1] : 0}" data-fs-away="${m.id}">
+            <button class="btn ghost sm" data-force-score="${m.id}">Set score</button>
+          </div>
           ${m.sport === 'football' && m.live ? `
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
-            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
-            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>Set 1st-half added time</button>
-            <input class="inp" style="width:56px;padding:8px 6px" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
-            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">Set 2nd-half added time</button>
+          <div class="admin-actionrow" style="margin-top:6px">
+            <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedHT || ''}" data-at-ht="${m.id}" ${m.htScore ? 'disabled' : ''}>
+            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="HT" ${m.htScore ? 'disabled' : ''}>+HT added time</button>
+            <input class="inp admin-num" type="number" inputmode="numeric" min="0" max="15" placeholder="min" value="${m.addedFT || ''}" data-at-ft="${m.id}">
+            <button class="btn ghost sm" data-added-time="${m.id}" data-at-half="FT">+FT added time</button>
           </div>` : ''}`}</td>
       </tr>`).join('')}</tbody></table></div>
 
@@ -1958,29 +1973,39 @@ async function renderAdmin(M) {
         toast('Config saved', 'Margin/suspend and stake limits updated.', 'ok');
       } catch (err) { toast('Save failed', err.message, 'bad'); }
     };
-    let fxMode = 'quick';
-    $$('[data-fxmode]').forEach(b => b.onclick = () => {
-      fxMode = b.dataset.fxmode;
-      $$('[data-fxmode]').forEach(x => x.classList.toggle('on', x === b));
-      $('#fxQuick').classList.toggle('hide', fxMode !== 'quick');
-      $('#fxDate').classList.toggle('hide', fxMode !== 'date');
+    // Default the kickoff date field to "today, Beirut time" so admin usually
+    // only has to touch the time field.
+    $('#fxKickDate').value = new Date().toLocaleDateString('en-CA', { timeZone: BEIRUT_TZ });
+    let fxKind = 'real';
+    $$('[data-fxkind]').forEach(b => b.onclick = () => {
+      fxKind = b.dataset.fxkind;
+      $$('[data-fxkind]').forEach(x => x.classList.toggle('on', x === b));
+      $('#fxVerifiedWrap').classList.toggle('hide', fxKind !== 'real');
     });
+    // Populate the league/team datalists from the engine's known rosters —
+    // admin can still type any brand-new league or team, this just saves
+    // typing for the 120+ real leagues the engine already knows about.
+    api('GET', '/api/admin/teams').then(({ teams }) => {
+      const leagues = new Set(), allTeams = new Set();
+      Object.values(teams || {}).forEach(bySport => Object.entries(bySport).forEach(([lg, roster]) => {
+        leagues.add(lg); roster.forEach(t => allTeams.add(t));
+      }));
+      $('#fxLeagueList').innerHTML = [...leagues].map(l => `<option value="${esc(l)}">`).join('');
+      $('#fxTeamList').innerHTML = [...allTeams].map(t => `<option value="${esc(t)}">`).join('');
+    }).catch(() => {});
     $('#fxAddBtn').onclick = async () => {
       try {
+        if (!$('#fxKickDate').value || !$('#fxKickTime').value) return toast('Missing kickoff', 'Pick both a date and a time.', 'bad');
         const payload = {
           sport: $('#fxSport').value, league: $('#fxLeague').value.trim(),
           home: $('#fxHome').value.trim(), away: $('#fxAway').value.trim(),
+          kind: fxKind, verified: fxKind === 'real' && $('#fxVerified').checked,
+          kickoffDate: $('#fxKickDate').value, kickoffTime: $('#fxKickTime').value,
         };
-        if (fxMode === 'date') {
-          if (!$('#fxKickDate').value || !$('#fxKickTime').value) return toast('Missing kickoff', 'Pick both a date and a time.', 'bad');
-          payload.kickoffDate = $('#fxKickDate').value; payload.kickoffTime = $('#fxKickTime').value;
-        } else {
-          payload.startInMinutes = +$('#fxStart').value || 0;
-        }
         const oh = $('#fxOddsHome').value, od = $('#fxOddsDraw').value, oa = $('#fxOddsAway').value;
         if (oh && od && oa) { payload.oddsHome = +oh; payload.oddsDraw = +od; payload.oddsAway = +oa; }
         await api('POST', '/api/admin/fixtures', payload);
-        toast('Fixture added', fxMode === 'date' ? 'It will go live automatically at kickoff (Beirut time).' : 'It will appear on the board shortly.', 'ok');
+        toast('Fixture added', 'It will kick off automatically at the time you set (Beirut time), or use Start now.', 'ok');
         renderAdmin(M);
       } catch (err) { toast('Could not add fixture', err.message, 'bad'); }
     };
@@ -1989,6 +2014,14 @@ async function renderAdmin(M) {
       const home = +$(`[data-fs-home="${id}"]`).value || 0, away = +$(`[data-fs-away="${id}"]`).value || 0;
       try { await api('POST', `/api/admin/matches/${id}/force-score`, { home, away }); toast('Score set', `${home} – ${away}`, 'ok'); renderAdmin(M); }
       catch (err) { toast('Could not set score', err.message, 'bad'); }
+    });
+    $$('[data-start-now]').forEach(b => b.onclick = async () => {
+      try { await api('POST', `/api/admin/matches/${b.dataset.startNow}/start-now`, {}); toast('Match started', 'Kicked off immediately.', 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not start match', err.message, 'bad'); }
+    });
+    $$('[data-inc]').forEach(b => b.onclick = async () => {
+      try { await api('POST', `/api/admin/matches/${b.dataset.inc}/increment`, { side: b.dataset.incSide }); toast('Goal added', b.dataset.incSide === 'home' ? 'Home +1' : 'Away +1', 'ok'); renderAdmin(M); }
+      catch (err) { toast('Could not update score', err.message, 'bad'); }
     });
     $$('[data-suspend-match]').forEach(b => b.onclick = async () => {
       try { await api('POST', `/api/admin/matches/${b.dataset.suspendMatch}/suspend`, { ms: 5000 }); toast('Match suspended', '5 seconds', 'ok'); renderAdmin(M); }

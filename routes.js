@@ -2,7 +2,12 @@
 const crypto = require('node:crypto');
 const db = require('./db');
 const engine = require('./engine');
-const CORRECT_SCORE_KEYS = new Set(engine.CORRECT_SCORES.map((cs) => cs.join('-')));
+// Defensive fallback: if a deploy ever runs this routes.js against an older
+// engine.js that doesn't export CORRECT_SCORES yet (e.g. a partial/stale
+// deploy where not every file updated together), don't crash the whole
+// server at boot over one settlement-market lookup table — just fall back to
+// the same list inline so the process still starts.
+const CORRECT_SCORE_KEYS = new Set((engine.CORRECT_SCORES || [[0,0],[1,0],[0,1],[1,1],[2,0],[0,2],[2,1],[1,2],[2,2],[3,0],[0,3],[3,1],[1,3],[3,2],[2,3]]).map((cs) => cs.join('-')));
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('./auth');
 
 const uid = (p) => p + crypto.randomBytes(6).toString('hex');

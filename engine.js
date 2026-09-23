@@ -13,6 +13,14 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const now = () => Date.now();
 
 const SEC_PER_MATCH_MIN = 3; // 1 simulated minute = 3 real seconds, same pace as the original
+// Real, verified/admin fixtures run at genuine real-world speed (a football
+// match really does take ~90 real minutes), while FIFA/quick-sim fixtures
+// stay compressed into a short, snappy playthrough (~8 real minutes for a
+// 90-minute football match). Both are just an override of `m.secPerMin`
+// consumed by advanceMatch(); anything without it falls back to the fast
+// default pace above (used by the ordinary auto-generated liquidity matches).
+const REAL_SEC_PER_MIN = 60; // true 1:1 real time
+const FIFA_SEC_PER_MIN = 480 / 90; // ~8 real minutes for a 90-minute match
 
 // ---------- Lebanon (Asia/Beirut, fixed UTC+3 — no DST) time helpers ----------
 // Everything "real-world time" in this app — the verified fixture kickoffs
@@ -80,23 +88,81 @@ function strengthsForOdds(oddsHome, oddsDraw, oddsAway) {
 
 const TEAMS = {
   football: {
-    'Premier League': ['Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'Man United', 'West Ham'],
-    'La Liga': ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Athletic Club', 'Real Sociedad', 'Villarreal', 'Real Betis', 'Sevilla'],
-    'Serie A': ['Inter', 'Juventus', 'Napoli', 'Milan', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina'],
-    'Bundesliga': ['Bayern Munich', 'Bayer Leverkusen', 'Borussia Dortmund', 'RB Leipzig', 'Eintracht Frankfurt', 'VfB Stuttgart'],
-    'Ligue 1': ['PSG', 'Monaco', 'Marseille', 'Lyon', 'Lille', 'Nice'],
-    'Süper Lig': ['Galatasaray', 'Fenerbahçe', 'Beşiktaş', 'Trabzonspor', 'Başakşehir', 'Adana Demirspor'],
-    'Primeira Liga': ['Benfica', 'Porto', 'Sporting CP', 'Braga', 'Vitória SC', 'Famalicão'],
-    'UEFA Champions League': ['Real Madrid', 'Bayern Munich', 'Paris Saint-Germain', 'Inter', 'Barcelona', 'Manchester City', 'Liverpool', 'Arsenal'],
+    // ---- Europe: top divisions ----
+    'Premier League': ['Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham', 'Newcastle', 'Aston Villa', 'Brighton', 'Man United', 'West Ham', 'Everton', 'Fulham', 'Wolves', 'Crystal Palace', 'Brentford', 'Nottingham Forest', 'Bournemouth', 'Ipswich', 'Leicester', 'Southampton'],
+    'La Liga': ['Real Madrid', 'Barcelona', 'Atlético Madrid', 'Athletic Club', 'Real Sociedad', 'Villarreal', 'Real Betis', 'Sevilla', 'Valencia', 'Girona', 'Osasuna', 'Celta Vigo', 'Rayo Vallecano', 'Getafe', 'Mallorca', 'Alavés'],
+    'Serie A': ['Inter', 'Juventus', 'Napoli', 'Milan', 'Atalanta', 'Roma', 'Lazio', 'Fiorentina', 'Bologna', 'Torino', 'Udinese', 'Genoa', 'Monza', 'Verona', 'Cagliari', 'Empoli'],
+    'Bundesliga': ['Bayern Munich', 'Bayer Leverkusen', 'Borussia Dortmund', 'RB Leipzig', 'Eintracht Frankfurt', 'VfB Stuttgart', 'Wolfsburg', 'Borussia Mönchengladbach', 'Union Berlin', 'Werder Bremen', 'Freiburg', 'Mainz'],
+    'Ligue 1': ['PSG', 'Monaco', 'Marseille', 'Lyon', 'Lille', 'Nice', 'Lens', 'Rennes', 'Toulouse', 'Strasbourg', 'Nantes', 'Reims'],
+    'Süper Lig': ['Galatasaray', 'Fenerbahçe', 'Beşiktaş', 'Trabzonspor', 'Başakşehir', 'Adana Demirspor', 'Konyaspor', 'Sivasspor'],
+    'Primeira Liga': ['Benfica', 'Porto', 'Sporting CP', 'Braga', 'Vitória SC', 'Famalicão', 'Boavista', 'Gil Vicente'],
+    'Eredivisie': ['Ajax', 'PSV', 'Feyenoord', 'AZ Alkmaar', 'FC Twente', 'FC Utrecht', 'Sparta Rotterdam'],
+    'Belgian Pro League': ['Club Brugge', 'Anderlecht', 'Genk', 'Union SG', 'Antwerp', 'Gent'],
+    'Scottish Premiership': ['Celtic', 'Rangers', 'Hearts', 'Aberdeen', 'Hibernian'],
+    'Swiss Super League': ['Young Boys', 'Basel', 'Servette', 'Lugano', 'Zurich'],
+    'Austrian Bundesliga': ['Red Bull Salzburg', 'Sturm Graz', 'Rapid Wien', 'Austria Wien'],
+    'Greek Super League': ['Olympiacos', 'Panathinaikos', 'AEK Athens', 'PAOK'],
+    'Ukrainian Premier League': ['Shakhtar Donetsk', 'Dynamo Kyiv', 'Dnipro-1'],
+    'Russian Premier League': ['Zenit', 'Spartak Moscow', 'CSKA Moscow', 'Krasnodar'],
+    'Championship': ['Leeds United', 'Sunderland', 'West Brom', 'Norwich City', 'Middlesbrough', 'Watford', 'Coventry City', 'Preston North End'],
+    'Serie B': ['Parma', 'Como', 'Venezia', 'Palermo', 'Sampdoria', 'Cremonese'],
+    'La Liga 2': ['Deportivo', 'Racing Santander', 'Sporting Gijón', 'Elche'],
+    'Croatian HNL': ['Dinamo Zagreb', 'Hajduk Split', 'Rijeka', 'Osijek'],
+    'Danish Superliga': ['FC Copenhagen', 'Midtjylland', 'Brøndby', 'Nordsjælland'],
+    'Norwegian Eliteserien': ['Bodø/Glimt', 'Molde', 'Rosenborg', 'Viking'],
+    'Swedish Allsvenskan': ['Malmö FF', 'AIK', 'Hammarby', 'Djurgården'],
+    'Polish Ekstraklasa': ['Legia Warsaw', 'Raków Częstochowa', 'Lech Poznań', 'Jagiellonia'],
+    'Czech First League': ['Sparta Prague', 'Slavia Prague', 'Viktoria Plzeň', 'Banik Ostrava'],
+    'Romanian Liga I': ['FCSB', 'CFR Cluj', 'Universitatea Craiova', 'Rapid Bucureşti'],
+    // ---- Europe: continental competitions ----
+    'UEFA Champions League': ['Real Madrid', 'Bayern Munich', 'Paris Saint-Germain', 'Inter', 'Barcelona', 'Manchester City', 'Liverpool', 'Arsenal', 'Borussia Dortmund', 'Atlético Madrid', 'Juventus', 'Napoli'],
+    'UEFA Europa League': ['Roma', 'Ajax', 'Liverpool', 'Tottenham', 'Villarreal', 'Rangers', 'Olympiacos', 'Lyon'],
+    'UEFA Conference League': ['Fiorentina', 'West Ham', 'Aston Villa', 'Club Brugge', 'PAOK', 'Molde'],
+    'UEFA Women\'s Champions League': ['Barcelona Femení', 'Lyon', 'Chelsea Women', 'Wolfsburg Women', 'Bayern Munich Women', 'Arsenal Women'],
     // Nations League groupings use national teams, not clubs — same
     // structure works fine since a league here is just a named pool of teams.
     'UEFA Nations League A': ['France', 'Germany', 'Portugal', 'Spain', 'Italy', 'Netherlands', 'Belgium', 'England'],
     'UEFA Nations League B': ['Turkey', 'Wales', 'Austria', 'Switzerland', 'Israel', 'Serbia', 'Norway', 'Ukraine'],
     'UEFA Nations League C': ['Montenegro', 'Latvia', 'Armenia', 'Cyprus', 'Albania', 'Finland', 'Kazakhstan', 'Slovakia'],
+    // ---- Americas ----
+    'MLS': ['Inter Miami', 'LAFC', 'LA Galaxy', 'Columbus Crew', 'Seattle Sounders', 'NY Red Bulls', 'Atlanta United', 'Orlando City'],
+    'Liga MX': ['Club América', 'Chivas Guadalajara', 'Cruz Azul', 'Monterrey', 'Tigres UANL', 'Pumas UNAM'],
+    'Brasileirão': ['Flamengo', 'Palmeiras', 'São Paulo', 'Corinthians', 'Grêmio', 'Internacional', 'Atlético Mineiro', 'Fluminense', 'Botafogo', 'Santos'],
+    'Categoría Primera A': ['Independiente Medellín', 'Jaguares de Córdoba', 'Millonarios', 'Atlético Nacional', 'América de Cali', 'Junior'],
+    'Argentine Primera División': ['Boca Juniors', 'River Plate', 'Racing Club', 'Independiente', 'San Lorenzo', 'Vélez Sarsfield', 'Estudiantes', 'Talleres'],
+    'Chilean Primera División': ['Colo-Colo', 'Universidad de Chile', 'Universidad Católica', 'Palestino'],
+    'Uruguayan Primera División': ['Peñarol', 'Nacional', 'Defensor Sporting'],
+    'Ecuadorian Serie A': ['LDU Quito', 'Barcelona SC', 'Independiente del Valle'],
+    'Paraguayan Primera División': ['Olimpia', 'Cerro Porteño', 'Libertad'],
+    'CONMEBOL Libertadores': ['Flamengo', 'Boca Juniors', 'River Plate', 'Palmeiras', 'Atlético Mineiro', 'Colo-Colo'],
+    'CONCACAF Champions Cup': ['LAFC', 'Club América', 'Monterrey', 'Seattle Sounders'],
+    // ---- Asia / Middle East / Africa / Oceania ----
+    'Saudi Pro League': ['Al Hilal', 'Al Nassr', 'Al Ittihad', 'Al Ahli', 'Al Ettifaq', 'Al Shabab'],
+    'Lebanese Premier League': ['Nejmeh', 'Ansar', 'Ahed', 'Tadamon Sour', 'Shabab Sahel'],
+    'Egyptian Premier League': ['Al Ahly', 'Zamalek', 'Pyramids FC', 'Al Ittihad Alexandria'],
+    'J1 League': ['Vissel Kobe', 'Yokohama F. Marinos', 'Kawasaki Frontale', 'Urawa Red Diamonds'],
+    'K League 1': ['Ulsan HD', 'Pohang Steelers', 'FC Seoul', 'Jeonbuk Hyundai Motors'],
+    'Chinese Super League': ['Shanghai Port', 'Beijing Guoan', 'Shandong Taishan', 'Shanghai Shenhua'],
+    'Indian Super League': ['Mohun Bagan', 'Bengaluru FC', 'Mumbai City', 'Kerala Blasters'],
+    'A-League': ['Melbourne City', 'Sydney FC', 'Melbourne Victory', 'Western Sydney Wanderers'],
+    'South African Premiership': ['Mamelodi Sundowns', 'Orlando Pirates', 'Kaizer Chiefs'],
+    'CAF Champions League': ['Al Ahly', 'Mamelodi Sundowns', 'Espérance de Tunis', 'Wydad AC'],
+    // ---- International ----
+    'FIFA World Cup Qualifiers': ['Brazil', 'Argentina', 'Uruguay', 'Colombia', 'Ecuador', 'Japan', 'South Korea', 'Saudi Arabia'],
+    'Copa América': ['Argentina', 'Brazil', 'Uruguay', 'Colombia', 'Chile', 'Peru'],
+    'AFCON': ['Nigeria', 'Senegal', 'Morocco', 'Egypt', 'Ivory Coast', 'Algeria'],
   },
-  basketball: { 'NBA': ['Boston Celtics', 'Denver Nuggets', 'LA Lakers', 'Golden State', 'Milwaukee', 'Phoenix Suns', 'Miami Heat', 'Dallas Mavericks', 'New York Knicks', 'Minnesota'] },
-  tennis: { 'ATP 1000': ['Alcaraz', 'Sinner', 'Djokovic', 'Medvedev', 'Zverev', 'Rublev', 'Rune', 'De Minaur'] },
-  nfl: { 'NFL': ['Chiefs', 'Bills', '49ers', 'Eagles', 'Cowboys', 'Ravens', 'Dolphins', 'Lions'] },
+  basketball: {
+    'NBA': ['Boston Celtics', 'Denver Nuggets', 'LA Lakers', 'Golden State', 'Milwaukee', 'Phoenix Suns', 'Miami Heat', 'Dallas Mavericks', 'New York Knicks', 'Minnesota', 'Philadelphia 76ers', 'Oklahoma City Thunder'],
+    'EuroLeague': ['Real Madrid Baloncesto', 'Panathinaikos', 'Fenerbahçe Beko', 'Olympiacos', 'FC Barcelona Bàsquet', 'Anadolu Efes'],
+    'ACB': ['Real Madrid Baloncesto', 'FC Barcelona Bàsquet', 'Baskonia', 'Unicaja'],
+  },
+  tennis: {
+    'ATP 1000': ['Alcaraz', 'Sinner', 'Djokovic', 'Medvedev', 'Zverev', 'Rublev', 'Rune', 'De Minaur'],
+    'WTA 1000': ['Swiatek', 'Sabalenka', 'Gauff', 'Rybakina', 'Pegula', 'Jabeur'],
+    'Grand Slam': ['Alcaraz', 'Djokovic', 'Sinner', 'Swiatek', 'Sabalenka', 'Gauff'],
+  },
+  nfl: { 'NFL': ['Chiefs', 'Bills', '49ers', 'Eagles', 'Cowboys', 'Ravens', 'Dolphins', 'Lions', 'Packers', 'Bengals'] },
 };
 const SPORTS = [{ id: 'football' }, { id: 'basketball' }, { id: 'tennis' }, { id: 'nfl' }];
 
@@ -282,7 +348,7 @@ function stepMinute(m) {
     // this rebased minute instead of immediately fast-forwarding past it.
     if (m.addedHT) {
       m.minute = 45;
-      m.liveStart += (m.addedHT * SEC_PER_MATCH_MIN * 1000);
+      m.liveStart += (m.addedHT * (m.secPerMin || SEC_PER_MATCH_MIN) * 1000);
     }
   }
   const cap = capFor(m);
@@ -339,9 +405,10 @@ function stepMinute(m) {
   return false;
 }
 function advanceMatch(m) {
-  if (!m.liveStart) m.liveStart = now() - m.minute * SEC_PER_MATCH_MIN * 1000;
+  const spm = m.secPerMin || SEC_PER_MATCH_MIN;
+  if (!m.liveStart) m.liveStart = now() - m.minute * spm * 1000;
   const cap = capFor(m);
-  const target = Math.min(cap, Math.floor((now() - m.liveStart) / 1000 / SEC_PER_MATCH_MIN));
+  const target = Math.min(cap, Math.floor((now() - m.liveStart) / 1000 / spm));
   let guard = 0;
   while (m.minute < target && guard < cap + 5) { guard++; if (stepMinute(m)) return true; }
   return false;
@@ -573,6 +640,7 @@ function seedSpecialFixtures() {
     const m = makeMatch('football', fx.league, fx.home, fx.away, false);
     m.start = fx.start;
     m.verified = true;
+    m.secPerMin = REAL_SEC_PER_MIN;
     const [oh, od, oa] = fx.odds;
     const str = strengthsForOdds(oh, od, oa);
     if (str) m.str = str;
@@ -702,7 +770,7 @@ function maybeKickoff() {
       // && m.start <= now())` line above, right at its own scheduled time.
       if (!due.length) {
         if (live.length === 0) {
-          const filler = upcoming.filter((m) => !m.verified).sort((a, b) => a.start - b.start)[0];
+          const filler = upcoming.filter((m) => !m.verified && !m.adminAdded).sort((a, b) => a.start - b.start)[0];
           due = filler ? [filler] : [];
         }
         if (!due.length) continue; // nothing fillable — wait for a fixture's own kick-off time
@@ -762,4 +830,5 @@ module.exports = {
   saveMatch, getMatch, listMatches, listRecentlyEnded, startEngine, CONFIG,
   startSim, listSims, MAX_SIMS_PER_USER, suspendMatch,
   BEIRUT_OFFSET_MS, beirutWallToUtc, strengthsForOdds, MAX_LIVE_PER_LEAGUE,
+  kickOffFresh, REAL_SEC_PER_MIN, FIFA_SEC_PER_MIN,
 };

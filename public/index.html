@@ -213,9 +213,23 @@ a{color:var(--accent)}
 .page-h{margin-bottom:18px;display:flex;align-items:baseline;justify-content:space-between}
 .page-h h2{margin:0;font-size:21px;font-weight:700;letter-spacing:.1px;font-family:var(--display)}
 .page-h p{margin:3px 0 0;color:var(--muted);font-size:13px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
-.tabs button{padding:10px 15px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;font-weight:600;transition:color .15s,border-color .15s}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;flex-wrap:wrap}
+.tabs button{padding:10px 15px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;font-weight:600;transition:color .15s,border-color .15s;white-space:nowrap}
 .tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.chip{padding:8px 14px;font-size:12.5px;font-weight:700;color:var(--muted);background:var(--raised);border:1px solid var(--line2);border-radius:999px;transition:background .15s,color .15s,border-color .15s}
+.chip.on{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:var(--accent)}
+/* With 7 tabs now on the sport page (the original Live/Upcoming/Verified
+   plus the four Live·Verified / Live·FIFA / Upcoming·Verified / Upcoming·FIFA
+   split-out ones), wrapping them like plain text on a phone left a messy
+   ragged two-line block with the border-bottom cutting through the middle of
+   it. A single horizontally-scrollable row (hidden scrollbar, same pattern
+   as .sportnav elsewhere in the app) reads as one deliberate strip of
+   filters instead, and every tab stays one tap away either way. */
+@media (max-width:900px){
+  .tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{padding:10px 12px;font-size:12.5px}
+}
 
 /* Section header splitting the Live tab into "✓ Verified" real matches vs
    everything else — see board()'s mode==='live' branch. Bigger and plainer
@@ -246,14 +260,20 @@ a{color:var(--accent)}
 .sim-card .sc-live{display:inline-flex;align-items:center;gap:6px;color:var(--down);font-weight:700;letter-spacing:.02em}
 .sim-card .sc-live i{width:6px;height:6px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px var(--down-soft);animation:pulse 1.4s infinite}
 .sim-card .sc-teams{font-size:14.5px;font-weight:600;font-family:var(--mono)}
-.odds{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
-.o{position:relative;display:flex;flex-direction:column;align-items:center;padding:9px 4px;background:var(--raised);border:1px solid var(--line2);border-radius:9px;
+.odds{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.o{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;background:var(--raised);border:1px solid var(--line2);border-radius:10px;
   transition:transform .12s,box-shadow .12s,background .12s,border-color .12s}
 .o:hover{background:var(--raised2);border-color:var(--gold2);transform:translateY(-1px);box-shadow:0 6px 14px -5px rgba(0,0,0,.5)}
+.o:active{transform:translateY(0) scale(.97)}
 .o .k{font-size:10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
-.o .v{font-family:var(--mono);font-size:14px;font-weight:800;color:var(--gold)}
+.o .v{font-family:var(--mono);font-size:14.5px;font-weight:800;color:var(--gold)}
 .o.on{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:var(--accent);box-shadow:var(--glow-cyan)}
 .o.on .k,.o.on .v{color:#fff}
+/* A faint top highlight gives every odds tile a touch of depth instead of
+   reading as a completely flat rectangle — subtle, but it's the difference
+   between "a button" and "a priced chip", which is closer to how a real
+   sportsbook renders its price buttons. */
+.o::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 40%);pointer-events:none}
 .o.locked{opacity:.4;pointer-events:none}
 /* Odds up/down flash — a real book's price moving is a signal worth seeing,
    not just a silently-updated number. Green when it drifts in the bettor's
@@ -499,12 +519,18 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 
 .mobile-tab{display:none}
 @media (max-width:1100px){
-  .mobile-tab{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);z-index:40}
-  .mobile-tab button{flex:1;padding:10px 0;font-size:11px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:600}
-  .mobile-tab button.on{color:var(--accent)}
-  .main{padding-bottom:70px}
+  /* Plain icon-only bottom nav (no text labels) — Home / Live now / FIFA /
+     My bets / Slip. The active icon gets its own rounded pill instead of
+     just a color change, which is what actually reads as "selected" once
+     there's no label underneath to lean on. */
+  .mobile-tab{display:flex;align-items:center;justify-content:space-around;position:fixed;bottom:0;left:0;right:0;
+    background:var(--surface);border-top:1px solid var(--line);z-index:40;padding:6px 8px;gap:4px}
+  .mobile-tab button{position:relative;flex:1;max-width:64px;padding:9px 0;font-size:19px;line-height:1;color:var(--muted);
+    display:flex;align-items:center;justify-content:center;border-radius:14px;transition:background .15s,color .15s}
+  .mobile-tab button.on{color:var(--accent);background:var(--accent-soft)}
+  .main{padding-bottom:74px}
   .slip-tab-btn{position:relative}
-  .mtab-badge{position:absolute;top:2px;right:calc(50% - 22px);min-width:15px;height:15px;padding:0 3px;border-radius:9px;
+  .mtab-badge{position:absolute;top:2px;right:calc(50% - 20px);min-width:15px;height:15px;padding:0 3px;border-radius:9px;
     background:var(--down);color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .mtab-badge.pulse{animation:tabBadgePulse .4s ease-out}
   .slipcol.open{box-shadow:-10px 0 30px -10px rgba(0,0,0,.6)}
@@ -760,7 +786,7 @@ async function api(method, path, body) {
   return data;
 }
 
-let S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [] };
+let S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], sims: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
 
 const MAX_VISIBLE_TOASTS = 4;
 function toast(title, body, kind, nav) {
@@ -941,7 +967,7 @@ $('#verifyBtn').onclick = async () => {
 $('#logoutBtn').onclick = () => {
   TOKEN = null; localStorage.removeItem('sb_token'); localStorage.removeItem('sb_slip');
   clearInterval(pollTimer); clearInterval(chatTimer);
-  S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], bets: [], txs: [], activity: [] };
+  S = { user: null, view: 'football', sportTab: 'live', slip: [], slipMode: 'single', matches: [], sims: [], bets: [], txs: [], activity: [], betsLiveOnly: false };
   prevBetStatus = {}; prevScoreByMatch = {};
   chatUnread = 0; chatBooted = false; updateChatBadge();
   $('#app').classList.add('hide'); $('#auth').classList.remove('hide');
@@ -968,13 +994,41 @@ function renderNav() {
   const items = S.user && S.user.isAdmin ? [...NAV, { g: 'Admin' }, { id: 'admin', t: 'Admin dashboard', ic: '🛡' }] : NAV;
   $('#rail').innerHTML = items.map(n => n.g ? `<h4>${n.g}</h4>` :
     `<button class="navb ${S.view === n.id ? 'on' : ''}" data-go="${n.id}"><span style="width:16px">${n.ic}</span>${n.t}</button>`).join('');
-  const tabs = [{ id: 'football', t: 'Sports', ic: '⚽' }, { id: 'sim', t: 'FIFA', ic: '🎮' }, { id: 'bets', t: 'Bets', ic: '▤' }, { id: 'wallet', t: 'Wallet', ic: '◈' }];
-  $('#mtab').innerHTML = tabs.map(t => `<button class="${S.view === t.id ? 'on' : ''}" data-go="${t.id}"><span>${t.ic}</span>${t.t}</button>`).join('')
+  // Plain icon-only bar (no text labels) — a home shortcut, a one-tap "Live"
+  // shortcut straight into the football board's Live tab, FIFA, My bets, and
+  // the slip drawer. Wallet moved off this bar (it's one tap away in the
+  // side rail, and the balance is already always visible in the top bar) to
+  // keep this row to the same handful of icons a real sportsbook app's
+  // bottom nav uses instead of stacking a label under every one of them.
+  const sportViews = ['football', 'basketball', 'tennis', 'nfl'];
+  const isLiveShortcut = sportViews.includes(S.view) && S.sportTab === 'live';
+  const mtabBtn = (active, goId, ic, title, badge) => `<button class="${active ? 'on' : ''}" data-mtab="${goId}" title="${title}">${ic}${badge ? `<span class="mtab-badge">${badge}</span>` : ''}</button>`;
+  // Live counts surfaced right on the icons, so Home/Live/FIFA/My bets all
+  // carry the same "what's happening right now" signal instead of the count
+  // living only inside the Live tab you have to open first.
+  const liveMatchCount = S.matches.filter(m => m.live).length;
+  const liveFifaCount = S.sims.filter(m => m.live).length;
+  const liveBetsCount = S.bets.filter(b => b.legs.some(l => { const m = findMatch(l.matchId); return m && m.live; })).length;
+  $('#mtab').innerHTML = [
+    mtabBtn(sportViews.includes(S.view) && !isLiveShortcut, 'home', '🏠', 'Home'),
+    mtabBtn(isLiveShortcut, 'live', '🔴', 'Live now', liveMatchCount || null),
+    mtabBtn(S.view === 'sim', 'sim', '🎮', 'FIFA', liveFifaCount || null),
+    mtabBtn(S.view === 'bets', 'bets', '📄', 'My bets', liveBetsCount || null),
+  ].join('')
     // A dedicated "Slip" tab on mobile — the betslip column is hidden below
     // the 1100px breakpoint (see .layout media query) with no other way to
     // open it, which made placing a bet on a phone impossible. This opens it
     // as the same slide-in drawer the CSS already defines for .slipcol.open.
-    + `<button class="slip-tab-btn" id="slipTabBtn"><span>🧾</span>Slip<span id="slipTabCount" class="mtab-badge hide">0</span></button>`;
+    + `<button class="slip-tab-btn" id="slipTabBtn" title="Bet slip">🧾<span id="slipTabCount" class="mtab-badge hide">0</span></button>`;
+  $$('#mtab [data-mtab]').forEach(b => b.onclick = () => {
+    const id = b.dataset.mtab;
+    // "Live now" always drops you into football's Live tab specifically —
+    // "Home" goes to whichever sport/tab you were last looking at (a normal
+    // go(), unchanged), so the two read as genuinely different shortcuts
+    // rather than two buttons that do the same thing.
+    if (id === 'live') { S.sportTab = 'live'; go('football'); }
+    else go(id === 'home' ? 'football' : id);
+  });
   $('#slipTabBtn').onclick = () => $('#slipcol').classList.add('open');
 }
 document.addEventListener('click', e => {
@@ -1004,7 +1058,12 @@ document.addEventListener('click', e => {
 });
 
 /* ============ BOARD ============ */
-function findMatch(id) { return S.matches.find(m => m.id === id); }
+// The Live/Upcoming FIFA tabs (see board()'s fifaList()) render matches that
+// live in S.sims, not S.matches — so anything that looks a match up by id
+// (adding a slip selection, refreshing odds, watching it) needs to check
+// both, or betting on a FIFA fixture from those tabs would silently fail to
+// find it.
+function findMatch(id) { return S.matches.find(m => m.id === id) || S.sims.find(m => m.id === id); }
 // Odds up/down flash: every board/match-detail re-render creates fresh button
 // elements (the page is rebuilt from an HTML string each poll), so a CSS
 // animation class only needs to be present at creation time to play once —
@@ -1083,7 +1142,30 @@ function leagueGroups(list, mainMkt) {
       ${ms.map(m => matchRow(m, mainMkt)).join('')}
     </section>`).join('');
 }
+// FIFA fixtures (m.sim) never appear in S.matches — the normal board
+// deliberately excludes them (see /api/matches) — so the dedicated
+// "Live · FIFA" / "Upcoming · FIFA" tabs read from S.sims instead, which
+// carries every FIFA/sim fixture for every user (populated alongside
+// S.matches on each poll — see doRefreshAll()). An admin-scheduled FIFA
+// fixture (kind:'fifa' in Add fixture) has a real kickoff time and can be
+// "upcoming" here; a user's own ad-hoc simulation always starts live
+// instantly, so it only ever shows up under "Live · FIFA".
+function fifaList(sport, liveWanted) {
+  return S.sims.filter(m => m.sport === sport && (liveWanted ? (m.live || m.ended) : (!m.live && !m.ended))).sort((a, b) => a.start - b.start);
+}
 function board(sport, mode) {
+  const mainMkt = sport === 'football' ? '1X2' : 'ML';
+  if (mode === 'live-fifa' || mode === 'upcoming-fifa') {
+    const list = fifaList(sport, mode === 'live-fifa');
+    if (!list.length) return `<div class="empty">No ${mode === 'live-fifa' ? 'live' : 'upcoming'} FIFA ${sport} matches right now.</div>`;
+    return leagueGroups(list, mainMkt);
+  }
+  if (mode === 'live-verified' || mode === 'upcoming-verified') {
+    const wantLive = mode === 'live-verified';
+    const list = S.matches.filter(m => m.sport === sport && m.verified && (wantLive ? (m.live || m.ended) : (!m.live && !m.ended))).sort((a, b) => a.start - b.start);
+    if (!list.length) return `<div class="empty">No ${wantLive ? 'live' : 'upcoming'} verified real ${sport} matches right now.</div>`;
+    return leagueGroups(list, mainMkt);
+  }
   // 'verified' is a real-world fixture — a curated real match, or one an
   // admin added by hand (both carry m.verified=true) — as opposed to the
   // procedurally-simulated filler that keeps every board topped up. It's a
@@ -1093,14 +1175,11 @@ function board(sport, mode) {
     mode === 'verified' ? m.verified : (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended))
   )).sort((a, b) => a.start - b.start);
   if (!list.length) return `<div class="empty">No ${mode === 'live' ? 'live' : (mode === 'verified' ? 'verified real' : 'upcoming')} ${sport} matches right now.</div>`;
-  const mainMkt = sport === 'football' ? '1X2' : 'ML';
-  // On the Live tab specifically, split verified real matches into their own
+  // On the plain Live tab, split verified real matches into their own
   // clearly-labeled section above everything else instead of mixing them
   // into the same league groups as the procedurally-simulated filler
   // matches that keep the board topped up — otherwise a real result and a
-  // simulated one looked identical apart from a small inline badge. FIFA
-  // fixtures never reach this board at all (they're `m.sim`, shown only on
-  // the separate FIFA simulation page), so they're already fully separated.
+  // simulated one looked identical apart from a small inline badge.
   if (mode === 'live') {
     const verified = list.filter(m => m.verified), rest = list.filter(m => !m.verified);
     return `
@@ -1113,10 +1192,14 @@ function renderRoute() {
   const M = $('#main');
   if (['football', 'basketball', 'tennis', 'nfl'].includes(S.view)) {
     M.innerHTML = `<div class="page-h"><h2 style="text-transform:capitalize">${S.view}</h2><p>Live, real-time-priced markets from the server</p></div>
-      <div class="tabs">
+      <div class="tabs tabs-wrap">
         <button class="${S.sportTab === 'live' ? 'on' : ''}" data-tab="live">Live</button>
         <button class="${S.sportTab === 'upcoming' ? 'on' : ''}" data-tab="upcoming">Upcoming</button>
         <button class="${S.sportTab === 'verified' ? 'on' : ''}" data-tab="verified">✓ Verified real matches</button>
+        <button class="${S.sportTab === 'live-verified' ? 'on' : ''}" data-tab="live-verified">🔴 Live · Verified</button>
+        <button class="${S.sportTab === 'live-fifa' ? 'on' : ''}" data-tab="live-fifa">🔴 Live · FIFA</button>
+        <button class="${S.sportTab === 'upcoming-verified' ? 'on' : ''}" data-tab="upcoming-verified">Upcoming · Verified</button>
+        <button class="${S.sportTab === 'upcoming-fifa' ? 'on' : ''}" data-tab="upcoming-fifa">Upcoming · FIFA</button>
       </div>
       <div id="boardBody">${board(S.view, S.sportTab)}</div>`;
     $$('.tabs button').forEach(b => b.onclick = () => { S.sportTab = b.dataset.tab; renderRoute(); });
@@ -1584,17 +1667,37 @@ function legTrackingHtml(l) {
   }
   return hintTag;
 }
+function betKindBadge(l) {
+  // Same Verified/FIFA distinction shown on the sports boards, surfaced here
+  // too so a bet's rows tell you at a glance what kind of match it's on.
+  // Prefer the flag captured on the leg itself at bet time (survives the
+  // match later ending and dropping out of /api/sims or losing its live
+  // flag); fall back to a live lookup for bets placed before this existed.
+  const m = findMatch(l.matchId);
+  const isSim = l.sim !== undefined ? l.sim : (m && m.sim);
+  const isVerified = l.verified !== undefined ? l.verified : (m && m.verified);
+  if (isSim) return ` <span class="tag fifabadge">🎮 FIFA</span>`;
+  if (isVerified) return ` <span class="tag verified">✓ Verified</span>`;
+  return '';
+}
 function renderBets(M) {
-  const rows = S.bets;
-  M.innerHTML = `<div class="page-h"><h2>My bets</h2><p>${rows.length} total</p></div>
-    ${!rows.length ? `<div class="empty">No bets yet.</div>` : `<div class="tablewrap"><table>
+  const liveOnly = S.betsLiveOnly;
+  const rows = S.bets.filter(b => !liveOnly || b.legs.some(l => { const m = findMatch(l.matchId); return m && m.live; }));
+  const liveCount = S.bets.filter(b => b.legs.some(l => { const m = findMatch(l.matchId); return m && m.live; })).length;
+  M.innerHTML = `<div class="page-h"><h2>My bets</h2><p>${S.bets.length} total${liveCount ? ` · ${liveCount} live now` : ''}</p></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="chip ${!liveOnly ? 'on' : ''}" data-betsfilter="all">All bets</button>
+      <button class="chip ${liveOnly ? 'on' : ''}" data-betsfilter="live">🔴 Live now${liveCount ? ` (${liveCount})` : ''}</button>
+    </div>
+    ${!rows.length ? `<div class="empty">${liveOnly ? 'No live bets right now.' : 'No bets yet.'}</div>` : `<div class="tablewrap"><table>
     <thead><tr><th>Time</th><th>Type</th><th>Selections</th><th>Stake</th><th>Odds</th><th>Payout</th><th>Status</th></tr></thead>
     <tbody>${rows.map(b => `<tr>
       <td data-label="Time">${fmtBeirut(b.placed)}</td><td data-label="Type">${b.type}</td>
-      <td data-label="Selections">${b.legs.map(l => `<span ${findMatch(l.matchId) && findMatch(l.matchId).live ? `data-watch="${l.matchId}" style="cursor:pointer;text-decoration:underline dotted"` : ''}>${esc(l.selName)}</span> <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${legTrackingHtml(l)}`).join('<br>')}</td>
+      <td data-label="Selections">${b.legs.map(l => `<span ${findMatch(l.matchId) && findMatch(l.matchId).live ? `data-watch="${l.matchId}" style="cursor:pointer;text-decoration:underline dotted"` : ''}>${esc(l.selName)}</span> <span style="color:var(--dim)">· ${esc(l.matchName)}</span>${betKindBadge(l)}${legTrackingHtml(l)}`).join('<br>')}</td>
       <td data-label="Stake" class="num">${fmt(b.stake)}</td><td data-label="Odds" class="num">${fmtOdds(b.odds)}</td><td data-label="Payout" class="num">${fmt(b.payout)}</td>
       <td data-label="Status"><span class="tag ${b.status}">${b.status}</span></td></tr>`).join('')}</tbody></table></div>`}`;
   $$('[data-watch]', M).forEach(el => el.onclick = () => { S.view = 'match'; S.watchId = el.dataset.watch; renderRoute(); });
+  $$('[data-betsfilter]', M).forEach(el => el.onclick = () => { S.betsLiveOnly = el.dataset.betsfilter === 'live'; renderBets(M); });
 }
 function renderTxs(M) {
   const pendingCount = S.txs.filter(t => t.status === 'pending').length;
@@ -2331,6 +2434,11 @@ async function doRefreshAll() {
     // have staked on never makes a sound at all. Kept separate from
     // S.matches so the board's own filtering/rendering is untouched.
     const simMatches = simsResp.sims || [];
+    // Kept on S too (alongside the sound-tracking use above) so the sport
+    // board's new "Live FIFA"/"Upcoming FIFA" tabs can filter these by sport
+    // and live/scheduled status, the same way S.matches already works for
+    // the real-match tabs.
+    S.sims = simMatches;
 
     // Sound: a bet transitioning from open -> won/lost between two polls.
     let justCredited = false;

@@ -646,6 +646,8 @@ route('GET', '/api/admin/matches', (req, res, p, body, query) => {
       id: m.id, sport: m.sport, league: m.league, home: m.home, away: m.away,
       score: m.score, minute: m.minute, live: m.live, ended: m.ended,
       verified: !!m.verified, start: m.start,
+      sim: !!m.sim, adminAdded: !!m.adminAdded,
+      kind: m.sim ? 'fifa' : 'real',
       status: m.ended ? 'finished' : (m.live ? 'live' : 'upcoming'),
       // Needed by the admin page's clock formatting (45+N'/90+N' once
       // stoppage time is added) and its added-time inputs — without these,
@@ -671,6 +673,14 @@ route('GET', '/api/admin/bets', (req, res) => {
 // though it had. This lets the page load with what's actually configured.
 route('GET', '/api/admin/config', (req, res) => {
   json(res, 200, { config: engine.CONFIG, stakeLimits: STAKE_LIMITS });
+}, { auth: true, admin: true });
+
+// Powers the league/team autocomplete on the admin "add fixture" form —
+// admins can still type anything free-form (any of the 120+ real leagues,
+// or a brand new one), this just suggests the ones already known to the
+// engine so most of the time they don't have to type a roster from scratch.
+route('GET', '/api/admin/teams', (req, res) => {
+  json(res, 200, { teams: engine.TEAMS, sports: engine.SPORTS.map((s) => s.id) });
 }, { auth: true, admin: true });
 
 route('POST', '/api/admin/config', (req, res, p, body) => {
@@ -766,8 +776,12 @@ route('POST', '/api/admin/matches/:id/added-time', (req, res, p, body) => {
 // handicap, half-time) stays internally consistent with them and still
 // updates live once the match kicks off, rather than freezing a raw number.
 route('POST', '/api/admin/fixtures', (req, res, p, body) => {
-  const { sport, league, home, away, startInMinutes, kickoffDate, kickoffTime, oddsHome, oddsDraw, oddsAway } = body || {};
+  const {
+    sport, league, home, away, startInMinutes, kickoffDate, kickoffTime,
+    oddsHome, oddsDraw, oddsAway, kind, verified,
+  } = body || {};
   if (!sport || !league || !home || !away) return json(res, 400, { error: 'sport, league, home and away are required.' });
+  const fxKind = kind === 'fifa' ? 'fifa' : 'real';
   const m = engine.makeMatch(sport, league, String(home), String(away), false);
   if (kickoffDate && kickoffTime) {
     const [y, mo, d] = String(kickoffDate).split('-').map(Number);
@@ -798,7 +812,55 @@ route('POST', '/api/admin/fixtures', (req, res, p, body) => {
       }
     }
   }
-  m.verified = true; // admin-added fixtures show the verified badge
+  // `adminAdded` marks every fixture the admin schedules here (either kind),
+  // so maybeKickoff()'s "never let a league go dark" fallback never force-
+  // starts it early — the admin's chosen kickoff time is always respected.
+  m.adminAdded = true;
+  if (fxKind === 'fifa') {
+    // FIFA / quick-sim fixture: shown on the sims board (not the normal real
+    // matches board), runs at a compressed pace (~8 real minutes for a full
+    // 90-minute football match), and is never treated as verified.
+    m.sim = true;
+    m.verified = false;
+    m.secPerMin = engine.FIFA_SEC_PER_MIN;
+  } else {
+    // Real fixture: shown on the normal board. Only marked "✓ Verified" (and
+    // therefore locked to admin-controlled scoring, per item 2) when the
+    // admin explicitly checks that box — otherwise it plays out like any
+    // other real-board match. Verified real fixtures run at true real-world
+    // speed (a 90-minute match really takes ~90 real minutes).
+    m.sim = false;
+    m.verified = !!verified;
+    m.secPerMin = m.verified ? engine.REAL_SEC_PER_MIN : undefined;
+  }
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+// Immediately kick off a scheduled (not-yet-live) fixture, regardless of its
+// programmed kickoff time — the admin dashboard's "Start now" action.
+route('POST', '/api/admin/matches/:id/start-now', (req, res, p) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  if (m.live || m.ended) return json(res, 400, { error: 'Match is already live or ended.' });
+  engine.kickOffFresh(m);
+  engine.saveMatch(m);
+  json(res, 200, { match: m });
+}, { auth: true, admin: true });
+
+// Bump one side's score by exactly 1 — the admin dashboard's quick "+1 home"
+// / "+1 away" buttons, for fast manual scoring of a verified/admin-locked
+// live match without typing the full new score.
+route('POST', '/api/admin/matches/:id/increment', (req, res, p, body) => {
+  const m = engine.getMatch(p.id);
+  if (!m) return json(res, 404, { error: 'Match not found.' });
+  const side = (body || {}).side === 'away' ? 1 : (body || {}).side === 'home' ? 0 : null;
+  if (side === null) return json(res, 400, { error: "side must be 'home' or 'away'." });
+  if (!Array.isArray(m.score)) m.score = [0, 0];
+  m.score[side] = (m.score[side] || 0) + 1;
+  m.lastScorer = side;
+  m.adminLocked = true;
+  engine.priceMatch(m);
   engine.saveMatch(m);
   json(res, 200, { match: m });
 }, { auth: true, admin: true });

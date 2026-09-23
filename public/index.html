@@ -217,6 +217,14 @@ a{color:var(--accent)}
 .tabs button{padding:10px 15px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;font-weight:600;transition:color .15s,border-color .15s}
 .tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
 
+/* Section header splitting the Live tab into "✓ Verified" real matches vs
+   everything else — see board()'s mode==='live' branch. Bigger and plainer
+   than a .league-h (which labels one competition); this labels a whole tier
+   of the board so the split reads as a real distinction, not just another
+   league group. */
+.board-section-h{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800;margin:22px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+.board-section-h:first-child{margin-top:0}
+.board-section-h.verified{color:var(--gold)}
 .league{margin-bottom:20px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--surface);box-shadow:0 8px 24px -12px rgba(0,0,0,.5)}
 .league-h{padding:11px 16px;font-size:12.5px;font-weight:700;letter-spacing:.2px;background:linear-gradient(90deg,#0B3A38,#1A0B2E);color:#B8FFF6;
   display:flex;align-items:center;gap:8px;text-transform:uppercase}
@@ -272,11 +280,13 @@ a{color:var(--accent)}
 .slip-mode button{flex:1;padding:8px;font-size:12.5px;color:var(--muted);border-radius:8px;background:var(--raised);font-weight:600;transition:background .15s,color .15s}
 .slip-mode button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 4px 10px -3px rgba(0,229,214,.5)}
 .slip-body{flex:1;overflow-y:auto;padding:12px 15px}
-.leg{background:var(--raised);border:1px solid var(--line2);border-radius:var(--r);padding:11px 12px;margin-bottom:9px;border-left:3px solid var(--accent)}
+.leg{background:var(--raised);border:1px solid var(--line2);border-radius:var(--r);padding:12px 13px;margin-bottom:10px;border-left:3px solid var(--accent);transition:border-color .15s,background .15s}
+.leg:hover{background:var(--raised2)}
 .leg-top{display:flex;gap:8px;justify-content:space-between}
-.leg-sel{font-size:13px;font-weight:700}
-.leg-mkt,.leg-match{font-size:11.5px;color:var(--dim)}
-.leg-odd{font-family:var(--mono);font-weight:800;color:var(--gold)}
+.leg-sel{font-size:13.5px;font-weight:700}
+.leg-mkt{font-size:10.5px;color:var(--accent);text-transform:uppercase;letter-spacing:.3px;font-weight:700;margin:2px 0}
+.leg-match{font-size:11.5px;color:var(--dim)}
+.leg-odd{font-family:var(--mono);font-weight:800;color:var(--gold);font-size:15px}
 /* padding + negative margin gives the ✕ a real ~32px tap target without
    nudging the visible glyph or the layout around it — the bare 15px glyph
    was hard to hit precisely on a touchscreen, so removing an unwanted leg
@@ -286,11 +296,18 @@ a{color:var(--accent)}
 .leg-err{font-size:11px;color:var(--down);margin-top:6px}
 .stake-row{margin-top:8px}
 .stake-row .inp{font-size:16px}
-.slip-foot{border-top:1px solid var(--line);padding:14px 16px}
+.slip-foot{border-top:1px solid var(--line);padding:16px;box-shadow:0 -8px 20px -14px rgba(0,0,0,.5);position:relative}
 .sum{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:6px}
 .sum b{color:var(--text)}
-.sum.big{font-size:16px;color:var(--text);border-top:1px dashed var(--line);padding-top:10px;margin-top:6px;font-weight:700}
+.sum.big{font-size:17px;color:var(--text);border-top:1px dashed var(--line);padding-top:10px;margin-top:6px;font-weight:800}
 .sum.big b{color:var(--up)}
+/* The one button that actually risks money — bigger, brighter, unmissable,
+   the way a real sportsbook's slip makes its "Place bet" impossible to
+   confuse with a secondary action. */
+.slip-foot #placeBtn{margin-top:4px;padding:14px;font-size:14.5px;font-weight:800;letter-spacing:.2px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 8px 20px -6px rgba(0,229,214,.45)}
+.slip-foot #placeBtn:disabled{background:var(--raised2);box-shadow:none;color:var(--dim)}
+.slip-foot #placeBtn:not(:disabled):active{transform:scale(.98)}
 
 /* ---- tables/cards ---- */
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
@@ -489,8 +506,11 @@ td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
   .slip-tab-btn{position:relative}
   .mtab-badge{position:absolute;top:2px;right:calc(50% - 22px);min-width:15px;height:15px;padding:0 3px;border-radius:9px;
     background:var(--down);color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .mtab-badge.pulse{animation:tabBadgePulse .4s ease-out}
   .slipcol.open{box-shadow:-10px 0 30px -10px rgba(0,0,0,.6)}
 }
+@keyframes tabBadgePulse{0%{transform:scale(1)}35%{transform:scale(1.6)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.mtab-badge.pulse{animation:none}}
 @media (max-width:640px){
   .match{grid-template-columns:1fr;gap:10px}
   .odds{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -970,11 +990,14 @@ document.addEventListener('click', e => {
   if (w && !e.target.closest('.o')) { S.view = 'match'; S.watchId = w.dataset.watch; return renderRoute(); }
   const o = e.target.closest('.o');
   if (o && !o.classList.contains('locked')) {
+    // Adds the selection in place — it used to also force the mobile slip
+    // drawer open over whatever the person was looking at, which meant
+    // closing it again after every single tap. addSel() now gives its own
+    // feedback (a toast + a pulse on the Slip tab's badge) instead, so
+    // building up a few selections while browsing feels normal, and opening
+    // the slip is a deliberate tap on its own tab, the way a real
+    // sportsbook app works.
     addSel(o.dataset.m, o.dataset.k, o.dataset.s);
-    // On mobile, jump straight to the slip so adding a selection visibly does
-    // something — otherwise it looks like tapping an odds button "does
-    // nothing" because the slip column is off-screen below 1100px.
-    if (window.innerWidth <= 1100) $('#slipcol').classList.add('open');
     return;
   }
   const rm = e.target.closest('[data-rm]'); if (rm) return removeLeg(rm.dataset.rm);
@@ -1047,10 +1070,18 @@ function matchRow(m, mainMkt) {
         <span>${esc(m.home)} ${m.live || m.ended ? `<b class="sc">${scoreLine[0]}</b>` : ''}</span>
         <span>${esc(m.away)} ${m.live || m.ended ? `<b class="sc">${scoreLine[1]}</b>` : ''}</span>
       </div>
-      <div class="m-meta">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? `<span class="clock">${clock}</span>` : fmtBeirut(m.start))} · ${Object.keys(m.markets).length} markets ${m.verified ? ' · ✓ Verified' : ''}</div>
+      <div class="m-meta">${m.ended ? '<span style="color:var(--dim)">● Full time</span>' : (m.live ? `<span class="clock">${clock}</span>` : fmtBeirut(m.start))} · ${Object.keys(m.markets).length} markets ${m.verified ? '<span class="tag verified" style="margin-left:4px">✓ Verified</span>' : ''}</div>
     </div>
     <div class="odds">${mkt.sel.map(s => oddsBtn(m, key, s)).join('')}${mkt.sel.length === 2 ? '<span></span>' : ''}</div>
   </div>`;
+}
+function leagueGroups(list, mainMkt) {
+  const byLeague = {}; list.forEach(m => (byLeague[m.league] = byLeague[m.league] || []).push(m));
+  return Object.entries(byLeague).map(([lg, ms]) => `
+    <section class="league">
+      <div class="league-h">${esc(lg)} · ${ms.length}</div>
+      ${ms.map(m => matchRow(m, mainMkt)).join('')}
+    </section>`).join('');
 }
 function board(sport, mode) {
   // 'verified' is a real-world fixture — a curated real match, or one an
@@ -1062,13 +1093,21 @@ function board(sport, mode) {
     mode === 'verified' ? m.verified : (mode === 'live' ? (m.live || m.ended) : (!m.live && !m.ended))
   )).sort((a, b) => a.start - b.start);
   if (!list.length) return `<div class="empty">No ${mode === 'live' ? 'live' : (mode === 'verified' ? 'verified real' : 'upcoming')} ${sport} matches right now.</div>`;
-  const byLeague = {}; list.forEach(m => (byLeague[m.league] = byLeague[m.league] || []).push(m));
   const mainMkt = sport === 'football' ? '1X2' : 'ML';
-  return Object.entries(byLeague).map(([lg, ms]) => `
-    <section class="league">
-      <div class="league-h">${esc(lg)} · ${ms.length}</div>
-      ${ms.map(m => matchRow(m, mainMkt)).join('')}
-    </section>`).join('');
+  // On the Live tab specifically, split verified real matches into their own
+  // clearly-labeled section above everything else instead of mixing them
+  // into the same league groups as the procedurally-simulated filler
+  // matches that keep the board topped up — otherwise a real result and a
+  // simulated one looked identical apart from a small inline badge. FIFA
+  // fixtures never reach this board at all (they're `m.sim`, shown only on
+  // the separate FIFA simulation page), so they're already fully separated.
+  if (mode === 'live') {
+    const verified = list.filter(m => m.verified), rest = list.filter(m => !m.verified);
+    return `
+      ${verified.length ? `<div class="board-section-h verified"><span class="tag verified">✓ Verified</span> Live real matches</div>${leagueGroups(verified, mainMkt)}` : ''}
+      ${rest.length ? `${verified.length ? '<div class="board-section-h">Other live matches</div>' : ''}${leagueGroups(rest, mainMkt)}` : ''}`;
+  }
+  return leagueGroups(list, mainMkt);
 }
 function renderRoute() {
   const M = $('#main');
@@ -1348,6 +1387,17 @@ function addSel(matchId, mkt, selK) {
   }
   S.slip.push({ id: 'l' + Math.random().toString(36).slice(2), key, matchId, mkt, selK, odds: sel.o, selName: sel.n, mktLabel: market.label, matchName: m.home + ' v ' + m.away, stake: 10 });
   renderSlip(); renderRoute();
+  // Confirms the tap landed without forcing the slip drawer open over
+  // whatever the person was looking at — see the click handler below, which
+  // used to yank the mobile view straight to the slip on every single tap.
+  // The badge bump on the Slip tab (from renderSlip() above) is the other
+  // half of this feedback; pulseSlipTab() below makes that bump noticeable.
+  toast(sel.n, m.home + ' v ' + m.away + ' · added to slip', 'ok');
+  pulseSlipTab();
+}
+function pulseSlipTab() {
+  const badge = $('#slipTabCount'); if (!badge) return;
+  badge.classList.remove('pulse'); void badge.offsetWidth; badge.classList.add('pulse');
 }
 function removeLeg(id) { S.slip = S.slip.filter(l => l.id !== id); renderSlip(); renderRoute(); }
 function refreshSlipOdds() {
@@ -1394,7 +1444,7 @@ function renderSlip() {
   const badge = $('#slipTabCount');
   if (badge) { badge.textContent = n; badge.classList.toggle('hide', !n); }
   const B = $('#slipBody'), F = $('#slipFoot');
-  if (!n) { B.innerHTML = `<div class="empty" style="padding:30px 10px">Tap any price to add a selection.</div>`; F.innerHTML = ''; return; }
+  if (!n) { B.innerHTML = `<div class="empty" style="padding:40px 16px"><div style="font-size:34px;margin-bottom:10px;opacity:.6">🧾</div>Your slip is empty.<br><span style="font-size:12px;color:var(--dim)">Tap any price on the board to add a selection.</span></div>`; F.innerHTML = ''; return; }
   const blocked = S.slip.some(l => l.gone);
   // Every leg always renders both its stake row and its "unavailable" notice
   // (tagged data-staker/data-err), just hidden with inline display:none when
@@ -2198,7 +2248,7 @@ function renderChat(messages, append) {
   messages.forEach(m => {
     const el = document.createElement('div');
     el.className = 'chat-msg' + (m.mine ? ' mine' : '');
-    el.innerHTML = `<b>${esc(m.mine ? 'You' : m.name)}</b><span class="ct">${new Date(m.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><div>${esc(m.msg)}</div>`;
+    el.innerHTML = `<b>${esc(m.mine ? 'You' : m.name)}</b><span class="ct">${new Date(m.t).toLocaleTimeString('en-GB', { timeZone: BEIRUT_TZ, hour: '2-digit', minute: '2-digit', hour12: true })}</span><div>${esc(m.msg)}</div>`;
     B.appendChild(el);
     chatLastT = Math.max(chatLastT, m.t);
   });
